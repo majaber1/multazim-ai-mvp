@@ -1,0 +1,2 @@
+import { Sidebar } from './Sidebar';
+export function AppShell({children,title}:{children:React.ReactNode;title:string}) {return <div className="flex min-h-screen bg-slate-50"><Sidebar/><main className="flex-1"><div className="border-b bg-white px-6 py-5"><div className="mx-auto max-w-6xl"><h1 className="text-2xl font-black">{title}</h1><p className="text-sm text-slate-500">منشأة تجريبية — الرياض</p></div></div><div className="mx-auto max-w-6xl p-6">{children}</div></main></div>}

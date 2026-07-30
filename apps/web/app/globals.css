@@ -1,0 +1,16 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: light; }
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: #f8fafc; color: #0f172a; }
+.mesh {
+  background-image:
+    radial-gradient(circle at 15% 20%, rgba(16,185,129,.18), transparent 28%),
+    radial-gradient(circle at 85% 15%, rgba(14,165,233,.16), transparent 25%),
+    linear-gradient(180deg,#f8fafc 0%,#ffffff 70%);
+}
+.card { @apply rounded-3xl border border-slate-200 bg-white shadow-soft; }
+.badge { @apply inline-flex items-center rounded-full px-3 py-1 text-xs font-bold; }
