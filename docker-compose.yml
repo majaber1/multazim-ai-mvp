@@ -6,7 +6,9 @@ services:
       POSTGRES_PASSWORD: multazim
       POSTGRES_DB: multazim
     ports: ["5432:5432"]
-    volumes: ["postgres_data:/var/lib/postgresql/data"]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
 
   redis:
     image: redis:7-alpine
@@ -18,15 +20,22 @@ services:
       DATABASE_URL: postgresql://multazim:multazim@postgres:5432/multazim
       REDIS_URL: redis://redis:6379
       AI_PROVIDER: mock
+      APP_ENV: development
+      ALLOWED_ORIGINS: http://localhost:3000
+      UPLOAD_DIR: /data/evidence
+    volumes:
+      - evidence_data:/data/evidence
     ports: ["8000:8000"]
     depends_on: [postgres, redis]
 
   web:
     build: ./apps/web
     environment:
-      NEXT_PUBLIC_API_URL: http://api:8000
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      API_INTERNAL_URL: http://api:8000
     ports: ["3000:3000"]
     depends_on: [api]
 
 volumes:
   postgres_data:
+  evidence_data:
