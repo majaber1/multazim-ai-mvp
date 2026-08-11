@@ -17,7 +17,8 @@ class SQLiteModelStore(MutableMapping[UUID, T], Generic[T]):
     """Small durable repository used by the single-container/local edition."""
 
     def __init__(self, name: str, model: type[T]) -> None:
-        database_path = Path(os.getenv("SQLITE_PATH", ".data/multazim.db"))
+        default_path = "/tmp/multazim.db" if os.getenv("VERCEL") else ".data/multazim.db"
+        database_path = Path(os.getenv("SQLITE_PATH", default_path))
         database_path.parent.mkdir(parents=True, exist_ok=True)
         self.connection = sqlite3.connect(database_path, check_same_thread=False)
         self.connection.execute(
@@ -82,5 +83,6 @@ class SQLiteEventStore:
 
 
 def storage_health() -> dict[str, object]:
-    path = Path(os.getenv("SQLITE_PATH", ".data/multazim.db"))
-    return {"engine": "sqlite", "path": str(path), "persistent": True}
+    default_path = "/tmp/multazim.db" if os.getenv("VERCEL") else ".data/multazim.db"
+    path = Path(os.getenv("SQLITE_PATH", default_path))
+    return {"engine": "sqlite", "path": str(path), "persistent": not bool(os.getenv("VERCEL"))}

@@ -17,7 +17,7 @@ export const fallbackDashboard:DashboardData={
   risk_distribution:{critical:3,high:8,medium:14},disclaimer_ar:'بيانات تجريبية ودرجات ملتزم تقديرية وليست تقييمًا رسميًا صادرًا من جهة تنظيمية.',
 };
 
-export function browserApiUrl(){return process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'}
+export function browserApiUrl(){return process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === 'production' ? 'https://multazim-api-20262031.vercel.app' : 'http://localhost:8000')}
 
 export async function getDashboard():Promise<{data:DashboardData;live:boolean}>{
   try{
