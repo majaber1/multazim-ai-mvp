@@ -9,7 +9,7 @@ import { Sidebar } from './Sidebar';
 import { useLocale } from './LocaleProvider';
 
 const routes = [
-  ['/dashboard','لوحة التحكم','Dashboard'],['/universe','نطاق الامتثال','Compliance Scope'],['/frameworks','الأطر والمعايير','Frameworks'],['/assessment','التقييمات','Assessments'],['/evidence','مركز الأدلة','Evidence Center'],['/gaps','الفجوات وخطط المعالجة','Gaps & Actions'],['/matrix','مصفوفة الامتثال','Compliance Matrix'],['/calendar','تقويم الامتثال','Compliance Calendar'],['/audits','غرفة التدقيق','Audit Room'],['/regulatory-updates','التحديثات التنظيمية','Regulatory Updates'],['/documents','السياسات والتقارير','Policies & Reports'],
+  ['/dashboard','لوحة التحكم','Dashboard'],['/journeys','الرحلات التنظيمية','Regulatory Journeys'],['/universe','نطاق الامتثال','Compliance Scope'],['/frameworks','الأطر والمعايير','Frameworks'],['/assessment','التقييمات','Assessments'],['/evidence','مركز الأدلة','Evidence Center'],['/gaps','الفجوات وخطط المعالجة','Gaps & Actions'],['/matrix','مصفوفة الامتثال','Compliance Matrix'],['/calendar','تقويم الامتثال','Compliance Calendar'],['/audits','غرفة التدقيق','Audit Room'],['/regulatory-updates','التحديثات التنظيمية','Regulatory Updates'],['/documents','السياسات والتقارير','Policies & Reports'],
 ] as const;
 const mobileRoutes = routes.slice(0, 2).concat([routes[4], routes[5], routes[7]]);
 

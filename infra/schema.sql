@@ -51,6 +51,44 @@ CREATE TABLE audits (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), organization
 CREATE TABLE compliance_snapshots (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, framework_version_id uuid REFERENCES framework_versions(id), score numeric NOT NULL, evidence_readiness numeric NOT NULL, risk_exposure numeric NOT NULL, captured_at timestamptz NOT NULL DEFAULT now());
 CREATE TABLE audit_log (id bigserial PRIMARY KEY, organization_id uuid REFERENCES organizations(id), actor_id uuid REFERENCES users(id), action text NOT NULL, resource_type text NOT NULL, resource_id uuid, metadata jsonb NOT NULL DEFAULT '{}', occurred_at timestamptz NOT NULL DEFAULT now());
 
+CREATE TYPE requirement_verification_status AS ENUM ('confirmed_requirement','suggested_requirement','requires_expert_verification');
+CREATE TYPE journey_readiness_status AS ENUM ('not_started','in_progress','blocked','pending_review','ready_for_submission');
+CREATE TABLE business_activities (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), code text UNIQUE NOT NULL, sector text NOT NULL,
+  name_ar text NOT NULL, name_en text NOT NULL, description_ar text, description_en text
+);
+CREATE TABLE licenses (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), code text UNIQUE NOT NULL, regulator_id uuid NOT NULL REFERENCES regulators(id),
+  name_ar text NOT NULL, name_en text NOT NULL, license_model text NOT NULL, official_source text NOT NULL,
+  verification_status requirement_verification_status NOT NULL
+);
+CREATE TABLE regulatory_journeys (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), code text UNIQUE NOT NULL,
+  business_activity_id uuid NOT NULL REFERENCES business_activities(id), license_id uuid NOT NULL REFERENCES licenses(id),
+  platform_name_ar text, platform_name_en text, platform_url text, version text NOT NULL,
+  status framework_status NOT NULL DEFAULT 'draft'
+);
+CREATE TABLE journey_requirements (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), journey_id uuid NOT NULL REFERENCES regulatory_journeys(id) ON DELETE CASCADE,
+  code text NOT NULL, requirement_type text NOT NULL, title_ar text NOT NULL, title_en text NOT NULL,
+  description_ar text, description_en text, source_url text NOT NULL, source_reference text NOT NULL,
+  verification_status requirement_verification_status NOT NULL, weight numeric NOT NULL CHECK (weight > 0 AND weight <= 100),
+  UNIQUE (journey_id, code)
+);
+CREATE TABLE organization_journeys (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  journey_id uuid NOT NULL REFERENCES regulatory_journeys(id), owner_id uuid REFERENCES users(id),
+  readiness_status journey_readiness_status NOT NULL DEFAULT 'not_started', readiness_score numeric NOT NULL DEFAULT 0,
+  blockers jsonb NOT NULL DEFAULT '[]', started_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (organization_id, journey_id)
+);
+CREATE TABLE organization_journey_requirements (
+  organization_journey_id uuid NOT NULL REFERENCES organization_journeys(id) ON DELETE CASCADE,
+  journey_requirement_id uuid NOT NULL REFERENCES journey_requirements(id), completed boolean NOT NULL DEFAULT false,
+  owner_id uuid REFERENCES users(id), evidence_ids uuid[] NOT NULL DEFAULT '{}', notes text, reviewed_by uuid REFERENCES users(id), reviewed_at timestamptz,
+  PRIMARY KEY (organization_journey_id, journey_requirement_id)
+);
+
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE assessments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE evidence ENABLE ROW LEVEL SECURITY;
@@ -58,6 +96,8 @@ ALTER TABLE gaps ENABLE ROW LEVEL SECURITY;
 ALTER TABLE risks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE corrective_actions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audits ENABLE ROW LEVEL SECURITY;
+ALTER TABLE organization_journeys ENABLE ROW LEVEL SECURITY;
+ALTER TABLE organization_journey_requirements ENABLE ROW LEVEL SECURITY;
 CREATE POLICY tenant_users ON users USING (organization_id = nullif(current_setting('app.organization_id', true), '')::uuid);
 CREATE POLICY tenant_assessments ON assessments USING (organization_id = nullif(current_setting('app.organization_id', true), '')::uuid);
 CREATE POLICY tenant_evidence ON evidence USING (organization_id = nullif(current_setting('app.organization_id', true), '')::uuid);
@@ -65,3 +105,7 @@ CREATE POLICY tenant_gaps ON gaps USING (organization_id = nullif(current_settin
 CREATE POLICY tenant_risks ON risks USING (organization_id = nullif(current_setting('app.organization_id', true), '')::uuid);
 CREATE POLICY tenant_actions ON corrective_actions USING (organization_id = nullif(current_setting('app.organization_id', true), '')::uuid);
 CREATE POLICY tenant_audits ON audits USING (organization_id = nullif(current_setting('app.organization_id', true), '')::uuid);
+CREATE POLICY tenant_organization_journeys ON organization_journeys USING (organization_id = nullif(current_setting('app.organization_id', true), '')::uuid);
+CREATE POLICY tenant_organization_journey_requirements ON organization_journey_requirements USING (
+  EXISTS (SELECT 1 FROM organization_journeys journey WHERE journey.id = organization_journey_id AND journey.organization_id = nullif(current_setting('app.organization_id', true), '')::uuid)
+);

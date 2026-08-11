@@ -1,13 +1,13 @@
 'use client';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { CalendarDays, ClipboardCheck, FileCheck2, Files, Gauge, Grid3X3, LayoutList, Scale, ShieldCheck, Sparkles, TriangleAlert } from 'lucide-react';
+import { BriefcaseBusiness, CalendarDays, ClipboardCheck, FileCheck2, Files, Gauge, Grid3X3, LayoutList, Scale, ShieldCheck, Sparkles, TriangleAlert } from 'lucide-react';
 import { Logo } from './Logo';
 import { useLocale } from './LocaleProvider';
 import { cn } from '@/lib/cn';
 
 const groups = [
-  [['/dashboard','لوحة التحكم','Dashboard',Gauge],['/universe','نطاق الامتثال','Compliance Scope',Sparkles]],
+  [['/dashboard','لوحة التحكم','Dashboard',Gauge],['/journeys','الرحلات التنظيمية','Regulatory Journeys',BriefcaseBusiness],['/universe','نطاق الامتثال','Compliance Scope',Sparkles]],
   [['/frameworks','الأطر والمعايير','Frameworks',ShieldCheck],['/assessment','التقييمات','Assessments',ClipboardCheck],['/evidence','مركز الأدلة','Evidence Center',FileCheck2],['/gaps','الفجوات وخطط المعالجة','Gaps & Actions',TriangleAlert]],
   [['/matrix','مصفوفة الامتثال','Compliance Matrix',Grid3X3],['/calendar','تقويم الامتثال','Compliance Calendar',CalendarDays],['/audits','غرفة التدقيق','Audit Room',Scale],['/regulatory-updates','التحديثات التنظيمية','Regulatory Updates',LayoutList],['/documents','السياسات والتقارير','Policies & Reports',Files]],
 ] as const;

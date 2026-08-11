@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, Response, UploadFile, status
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 import jwt
 from jwt import PyJWKClient
@@ -166,6 +166,10 @@ class AuditEvent(BaseModel):
 
 class WebsiteAuditRequest(BaseModel):
     url: HttpUrl
+
+
+class JourneyReadinessRequest(BaseModel):
+    completed_requirement_codes: list[str] = Field(default_factory=list, max_length=200)
 
 
 APP_ENV = os.getenv("APP_ENV", "development").lower()
@@ -602,21 +606,83 @@ def executive_report_pdf(user: Annotated[UserContext, Depends(user_context)]):
 
 
 @app.get("/v1/frameworks/catalog")
-def framework_catalog():
+def framework_catalog(
+    q: Annotated[str | None, Query(max_length=120)] = None,
+    regulator: Annotated[str | None, Query(max_length=40)] = None,
+    verification_status: Annotated[str | None, Query(max_length=40)] = None,
+):
     root = Path(__file__).resolve().parents[3] / "regulatory_catalog"
     records = []
     for path in sorted(root.rglob("*.json")):
         if path.name == "schema.json":
             continue
         item = json.loads(path.read_text(encoding="utf-8"))
-        records.append({
-            "code": item.get("code"), "version": item.get("version"),
-            "name_ar": item.get("name_ar"), "name_en": item.get("name_en"),
-            "source_url": item.get("source_url"),
-            "verification_status": item.get("verification_status", "pending_verification"),
-        })
+        record = {
+            "code": item["code"], "regulator": item["regulator"],
+            "version": item["version"], "name_ar": item["name_ar"], "name_en": item["name_en"],
+            "official_source": item["official_source"], "verification_status": item["status"],
+            "facts": item.get("facts", {}), "controls_count": len(item.get("controls", [])),
+        }
+        searchable = " ".join(str(record[key]) for key in ("code", "regulator", "name_ar", "name_en", "version")).casefold()
+        if q and q.casefold() not in searchable:
+            continue
+        if regulator and record["regulator"].casefold() != regulator.casefold():
+            continue
+        if verification_status and record["verification_status"].casefold() != verification_status.casefold():
+            continue
+        records.append(record)
     return {"count": len(records), "records": records,
         "notice": "Source metadata only; detailed control text requires licensed/official source verification."}
+
+
+def load_regulatory_journeys() -> list[dict]:
+    root = Path(__file__).resolve().parents[3] / "regulatory_journeys"
+    return [json.loads(path.read_text(encoding="utf-8")) for path in sorted(root.rglob("*.json")) if path.name != "schema.json"]
+
+
+@app.get("/v1/journeys")
+def regulatory_journeys(q: Annotated[str | None, Query(max_length=120)] = None):
+    records = []
+    for item in load_regulatory_journeys():
+        summary = {
+            "code": item["code"], "business_activity": item["business_activity"], "license": item["license"],
+            "authority": item["authority"], "platform": item["platform"],
+            "requirements_count": len(item["requirements"]),
+            "confirmed_count": sum(requirement["status"] == "CONFIRMED_REQUIREMENT" for requirement in item["requirements"]),
+        }
+        searchable = " ".join((item["code"], item["business_activity"]["name_ar"], item["business_activity"]["name_en"], item["authority"]["code"])).casefold()
+        if not q or q.casefold() in searchable:
+            records.append(summary)
+    return {"count": len(records), "records": records}
+
+
+@app.get("/v1/journeys/{journey_code}")
+def regulatory_journey(journey_code: str):
+    journey = next((item for item in load_regulatory_journeys() if item["code"].casefold() == journey_code.casefold()), None)
+    if not journey:
+        raise HTTPException(status_code=404, detail="Regulatory journey not found")
+    return journey
+
+
+@app.post("/v1/journeys/{journey_code}/readiness")
+def journey_readiness(journey_code: str, payload: JourneyReadinessRequest):
+    journey = regulatory_journey(journey_code)
+    valid_codes = {requirement["code"] for requirement in journey["requirements"]}
+    completed = set(payload.completed_requirement_codes)
+    unknown = sorted(completed - valid_codes)
+    if unknown:
+        raise HTTPException(status_code=422, detail={"unknown_requirement_codes": unknown})
+    score = sum(requirement["weight"] for requirement in journey["requirements"] if requirement["code"] in completed)
+    blockers = [
+        {"code": requirement["code"], "title_ar": requirement["title_ar"], "title_en": requirement["title_en"], "verification_status": requirement["status"]}
+        for requirement in journey["requirements"] if requirement["code"] not in completed
+    ]
+    return {
+        "journey_code": journey["code"], "score": score,
+        "status": "ready_for_submission" if score == 100 else "in_progress" if score else "not_started",
+        "completed_count": len(completed), "total_count": len(valid_codes), "blockers": blockers,
+        "notice": "Readiness is decision support and does not guarantee regulator approval.",
+    }
 
 
 @app.post("/v1/audits/website")

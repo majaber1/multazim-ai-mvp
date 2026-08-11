@@ -130,3 +130,43 @@ def test_pdf_excel_and_catalog_exports():
     assert xlsx.status_code == 200 and xlsx.content.startswith(b"PK")
     catalog = client.get("/v1/frameworks/catalog")
     assert catalog.status_code == 200 and catalog.json()["count"] == 5
+
+
+def test_catalog_exposes_official_sources_and_supports_filters():
+    nca = client.get("/v1/frameworks/catalog", params={"regulator": "nca"})
+    assert nca.status_code == 200
+    assert nca.json()["count"] == 2
+    assert all(item["regulator"] == "NCA" for item in nca.json()["records"])
+    assert all(item["official_source"].startswith("https://") for item in nca.json()["records"])
+
+    searched = client.get("/v1/frameworks/catalog", params={"q": "personal data"})
+    assert searched.status_code == 200
+    assert [item["code"] for item in searched.json()["records"]] == ["SDAIA-PDPL"]
+
+    verified = client.get("/v1/frameworks/catalog", params={"verification_status": "VERIFIED_METADATA"})
+    assert verified.status_code == 200
+    assert verified.json()["count"] == 2
+
+
+def test_transportation_journey_is_sourced_classified_and_scores_readiness():
+    listing = client.get("/v1/journeys", params={"q": "taxi"})
+    assert listing.status_code == 200 and listing.json()["count"] == 1
+    assert listing.json()["records"][0]["requirements_count"] == 8
+
+    detail = client.get("/v1/journeys/TGA-TAXI-APP-MEDIATION")
+    assert detail.status_code == 200
+    journey = detail.json()
+    source_ids = {source["id"] for source in journey["official_sources"]}
+    assert all(requirement["source_id"] in source_ids for requirement in journey["requirements"])
+    statuses = {requirement["status"] for requirement in journey["requirements"]}
+    assert statuses == {"CONFIRMED_REQUIREMENT", "SUGGESTED_REQUIREMENT", "REQUIRES_EXPERT_VERIFICATION"}
+
+    confirmed = [requirement["code"] for requirement in journey["requirements"] if requirement["status"] == "CONFIRMED_REQUIREMENT"]
+    readiness = client.post("/v1/journeys/TGA-TAXI-APP-MEDIATION/readiness", json={"completed_requirement_codes": confirmed})
+    assert readiness.status_code == 200
+    assert readiness.json()["score"] == 75
+    assert readiness.json()["status"] == "in_progress"
+    assert len(readiness.json()["blockers"]) == 3
+
+    invalid = client.post("/v1/journeys/TGA-TAXI-APP-MEDIATION/readiness", json={"completed_requirement_codes": ["UNKNOWN"]})
+    assert invalid.status_code == 422

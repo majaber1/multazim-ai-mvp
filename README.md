@@ -1,6 +1,6 @@
 # ملتزم | Multazim
 
-Saudi Compliance Intelligence Platform — منصة الامتثال الذكية للمملكة
+Saudi Compliance, Governance & Measurement Platform — منصة الامتثال والحوكمة والقياس السعودية
 
 Multazim is a bilingual foundation for determining which Saudi regulatory frameworks likely apply to an organization, measuring readiness, reusing evidence across mapped controls, tracking gaps and actions, and preparing for audits. It does not claim complete Saudi regulatory coverage and does not present internal scores as regulator-issued results.
 
@@ -12,9 +12,13 @@ Multazim is a bilingual foundation for determining which Saudi regulatory framew
 - API RBAC and tenant-IDOR protection for the initial evidence workflow.
 - Executive dashboard, compliance universe, frameworks, evidence reuse, gaps/actions, matrix, audit room, and coverage views.
 - Official-source register and explicit pending-verification states.
+- Business-facing regulatory journeys with sourced requirement classifications and readiness scoring.
 - Fictional bilingual demo organization and clearly labeled estimated scores.
 
 See [implementation status](docs/IMPLEMENTATION_STATUS.md) for exact limitations.
+The current evidence-backed architecture and module gap analysis is maintained in
+[the Multazim audit](docs/MULTAZIM_AUDIT.md), with the concise current roadmap in
+[the Multazim status](docs/MULTAZIM_STATUS.md).
 
 ## Local development
 
@@ -59,6 +63,7 @@ docker compose --profile postgres --profile redis up --build
 ```bash
 npm run build
 python scripts/validate_catalog.py
+python scripts/validate_journeys.py
 python -m pytest apps/api/tests
 ```
 
@@ -73,6 +78,8 @@ The shared design tokens live in `apps/web/app/globals.css`. Product surfaces sh
 Build the web and API images from their Dockerfiles. SQLite plus a mounted volume is supported for a single API instance. Multi-instance production should use PostgreSQL 16 (Neon or Supabase free tiers are suitable starters), run `infra/schema.sql` through a controlled migration, and configure an external OIDC identity provider. Local object storage is supported for a single server; multi-instance deployments should use S3-compatible storage such as MinIO, Cloudflare R2, Supabase Storage, or Vercel Blob. Secrets must be supplied by the deployment platform and never committed.
 
 Executive reports are available as PDF, Excel, and CSV from the Policies & Reports page and through `/v1/reports/executive.{pdf,xlsx,csv}`.
+
+The first regulatory-journey pilot is available at `/journeys`. It models electronic taxi passenger-mediation as a TGA contract-based authorization, retains official source references, and deliberately marks unconfirmed PDPL, cybersecurity, and Nafath interpretations as suggested or requiring expert verification.
 
 Before production, complete every item marked `BLOCKED` or security-sensitive `PLANNED` in the implementation status.
 
