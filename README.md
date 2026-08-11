@@ -62,6 +62,12 @@ python scripts/validate_catalog.py
 python -m pytest apps/api/tests
 ```
 
+## Arabic, English, and RTL
+
+The locale switch updates the document `lang` and `dir`, persists the choice locally, and uses Saudi locale formatting for dates and numbers. New interactive components should use `useLocale().tr(ar, en)`, logical CSS (`start/end`, `ms/me`, `ps/pe`, `border-e`), and `.technical-value` for URLs, identifiers, hashes, and code. Directional icons should only mirror when their meaning changes with reading direction.
+
+The shared design tokens live in `apps/web/app/globals.css`. Product surfaces should use those brand, semantic status, border, focus, radius, shadow, and motion tokens rather than introducing new foundational hex colors.
+
 ## Production deployment
 
 Build the web and API images from their Dockerfiles. SQLite plus a mounted volume is supported for a single API instance. Multi-instance production should use PostgreSQL 16 (Neon or Supabase free tiers are suitable starters), run `infra/schema.sql` through a controlled migration, and configure an external OIDC identity provider. Local object storage is supported for a single server; multi-instance deployments should use S3-compatible storage such as MinIO, Cloudflare R2, Supabase Storage, or Vercel Blob. Secrets must be supplied by the deployment platform and never committed.
