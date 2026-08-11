@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 
 type Locale = 'ar' | 'en';
-type LocaleContextValue = { locale: Locale; setLocale: (locale: Locale) => void; t: (value: string) => string };
+type LocaleContextValue = { locale: Locale; setLocale: (locale: Locale) => void; t: (value: string) => string; tr: (arabic: string, english: string) => string; formatNumber: (value: number) => string; formatDate: (value: string | Date) => string };
 
 const translations: Record<string, string> = {
   'لوحة التحكم': 'Dashboard',
@@ -35,7 +35,7 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
     window.localStorage.setItem('multazim-locale', locale);
     document.cookie = `multazim-locale=${locale};path=/;max-age=31536000;samesite=lax`;
   }, [locale]);
-  const value = useMemo(() => ({ locale, setLocale: updateLocale, t: (text: string) => locale === 'en' ? translations[text] ?? text : text }), [locale]);
+  const value = useMemo(() => ({ locale, setLocale: updateLocale, t: (text: string) => locale === 'en' ? translations[text] ?? text : text, tr: (arabic: string, english: string) => locale === 'ar' ? arabic : english, formatNumber: (value: number) => new Intl.NumberFormat(locale === 'ar' ? 'ar-SA' : 'en-SA').format(value), formatDate: (value: string | Date) => new Intl.DateTimeFormat(locale === 'ar' ? 'ar-SA' : 'en-SA', { dateStyle: 'medium' }).format(new Date(value)) }), [locale]);
   return <LocaleContext.Provider value={value}>{children}</LocaleContext.Provider>;
 }
 

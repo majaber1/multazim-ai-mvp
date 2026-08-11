@@ -2,19 +2,32 @@
 @tailwind components;
 @tailwind utilities;
 
-:root { color-scheme: light; }
+:root {
+  color-scheme: light;
+  --brand-primary: #0f766e; --brand-primary-strong: #115e59; --brand-secondary: #0f172a; --accent: #0ea5e9;
+  --background: #f6f8f7; --surface: #ffffff; --surface-muted: #f1f5f4; --text: #10211b; --text-muted: #64748b;
+  --success: #15803d; --warning: #b45309; --danger: #b91c1c; --information: #0369a1; --border: #dfe7e3;
+  --focus-ring: rgba(13, 148, 136, .35); --radius-sm: .625rem; --radius-md: .875rem; --radius-lg: 1.125rem;
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, .04), 0 14px 38px -28px rgba(15, 23, 42, .45);
+  --motion-fast: 150ms; --motion-base: 240ms;
+}
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
-body { margin: 0; background: #f5f7f6; color: #12201b; }
+body { margin: 0; background: var(--background); color: var(--text); }
 button, a { -webkit-tap-highlight-color: transparent; }
-button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid rgba(5, 150, 105, .28); outline-offset: 2px; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+button, a, input, select, textarea { transition-duration: var(--motion-fast); }
 .mesh {
   background-image:
     radial-gradient(circle at 15% 20%, rgba(16,185,129,.18), transparent 28%),
     radial-gradient(circle at 85% 15%, rgba(14,165,233,.16), transparent 25%),
     linear-gradient(180deg,#f8fafc 0%,#ffffff 70%);
 }
-.card { @apply rounded-2xl border border-slate-200 bg-white shadow-soft; }
+.card { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow-card); }
 .badge { @apply inline-flex items-center rounded-full px-3 py-1 text-xs font-bold; }
 .eyebrow { @apply text-[10px] font-black uppercase tracking-[.18em] text-emerald-700; }
 ::selection { background: rgba(16,185,129,.22); color: #052e16; }
+.technical-value { direction: ltr; unicode-bidi: isolate; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.section-enter { animation: section-enter var(--motion-base) ease-out both; }
+@keyframes section-enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; } }
