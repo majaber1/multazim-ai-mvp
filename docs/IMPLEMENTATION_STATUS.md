@@ -4,7 +4,7 @@ Status is intentionally conservative.
 
 | Module | Status | Notes |
 |---|---|---|
-| Executive dashboard | IMPLEMENTED & TESTED | Typed FastAPI summary with explicit offline fallback; fictional demo data labeled |
+| Executive dashboard | IMPLEMENTED & TESTED | Responsive command center with typed FastAPI summary, explicit offline fallback, executive trends, risk/workstream views, and fictional demo labeling |
 | Applicability engine | IMPLEMENTED & TESTED | Profile save + recalculation for initial DGA/PDPL/NCA/SAMA/ISO rules |
 | Versioned regulatory data model | IMPLEMENTED NOT FULLY TESTED | SQL schema, immutable version structure, and controlled migration runner; hosted database provisioning pending |
 | Catalog files and validator | IMPLEMENTED & TESTED | Five starter records; detailed control imports pending |
