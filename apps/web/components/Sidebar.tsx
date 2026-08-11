@@ -1,6 +1,15 @@
+'use client';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { BriefcaseBusiness, CalendarDays, ClipboardCheck, FileCheck2, Files, Gauge, Grid3X3, LayoutList, Scale, ShieldCheck, Sparkles, TriangleAlert } from 'lucide-react';
 import { Logo } from './Logo';
-const items = [['/dashboard','لوحة التحكم'],['/assessment','التقييم'],['/website-audit','فحص الموقع'],['/documents','المستندات']];
-export function Sidebar() {
-  return <aside className="hidden min-h-screen w-72 border-l border-slate-200 bg-white p-6 lg:block"><Logo /><div className="mt-10 space-y-2">{items.map(([href,label])=><Link key={href} href={href} className="block rounded-2xl px-4 py-3 font-bold text-slate-600 hover:bg-emerald-50 hover:text-emerald-700">{label}</Link>)}</div><div className="mt-10 rounded-3xl bg-slate-900 p-5 text-white"><div className="font-black">الخطة المجانية</div><p className="mt-2 text-sm text-slate-300">أكمل ملف منشأتك لرفع دقة التوصيات.</p><div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-700"><div className="h-full w-2/3 bg-emerald-400" /></div></div></aside>
-}
+import { useLocale } from './LocaleProvider';
+import { cn } from '@/lib/cn';
+
+const groups = [
+  [['/dashboard','لوحة التحكم','Dashboard',Gauge],['/journeys','الرحلات التنظيمية','Regulatory Journeys',BriefcaseBusiness],['/universe','نطاق الامتثال','Compliance Scope',Sparkles]],
+  [['/frameworks','الأطر والمعايير','Frameworks',ShieldCheck],['/assessment','التقييمات','Assessments',ClipboardCheck],['/evidence','مركز الأدلة','Evidence Center',FileCheck2],['/gaps','الفجوات وخطط المعالجة','Gaps & Actions',TriangleAlert]],
+  [['/matrix','مصفوفة الامتثال','Compliance Matrix',Grid3X3],['/calendar','تقويم الامتثال','Compliance Calendar',CalendarDays],['/audits','غرفة التدقيق','Audit Room',Scale],['/regulatory-updates','التحديثات التنظيمية','Regulatory Updates',LayoutList],['/documents','السياسات والتقارير','Policies & Reports',Files]],
+] as const;
+
+export function Sidebar({ collapsed = false }: { collapsed?: boolean }){const {locale,tr}=useLocale();const pathname=usePathname();return <aside className={cn('sticky top-0 hidden h-screen shrink-0 border-e border-[var(--border)] bg-white p-4 transition-[width] duration-200 xl:flex xl:flex-col',collapsed?'w-20':'w-72')}><div className={cn(collapsed&&'flex justify-center')}><Logo compact={collapsed}/></div><div className="mt-7 flex-1 space-y-4 overflow-y-auto pe-1">{groups.map((group,i)=><nav key={i} aria-label={`${tr('مجموعة التنقل','Navigation group')} ${i+1}`} className="space-y-1 border-b border-slate-100 pb-4">{group.map(([href,ar,en,Icon])=>{const active=pathname===href;return <Link key={href} href={href} title={collapsed?tr(ar,en):undefined} aria-current={active?'page':undefined} className={cn('flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-bold transition-colors',active?'bg-teal-50 text-teal-900 shadow-[inset_3px_0_0_#0f766e] rtl:shadow-[inset_-3px_0_0_#0f766e]':'text-slate-600 hover:bg-slate-50 hover:text-teal-800')}><Icon aria-hidden="true" className="h-4 w-4 shrink-0"/>{collapsed?null:<span className="min-w-0"><span className="block truncate">{tr(ar,en)}</span><span className={cn('block truncate text-[10px] font-medium',active?'text-teal-600':'text-slate-400')}>{locale==='ar'?en:ar}</span></span>}</Link>})}</nav>)}</div>{collapsed?<span className="mx-auto rounded-full bg-amber-300 px-2 py-1 text-[9px] font-black text-slate-950">DEMO</span>:<div className="mt-4 rounded-2xl bg-slate-950 p-4 text-white"><div className="flex items-center justify-between"><span className="font-bold">DEMO</span><span className="rounded-full bg-amber-300 px-2 py-0.5 text-[10px] font-black text-slate-950">{tr('بيانات تجريبية','Demo data')}</span></div><p className="mt-2 text-xs leading-5 text-slate-400">{tr('شركة آفاق الرقمية السعودية — جهة خيالية','Saudi Digital Horizons Company — fictional entity')}</p></div>}</aside>}
