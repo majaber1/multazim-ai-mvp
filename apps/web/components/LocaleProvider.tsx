@@ -25,16 +25,19 @@ const LocaleContext = createContext<LocaleContextValue | null>(null);
 
 export function LocaleProvider({ children }: { children: React.ReactNode }) {
   const [locale, updateLocale] = useState<Locale>('ar');
+  const [localeReady, setLocaleReady] = useState(false);
   useEffect(() => {
     const saved = window.localStorage.getItem('multazim-locale');
     if (saved === 'ar' || saved === 'en') updateLocale(saved);
+    setLocaleReady(true);
   }, []);
   useEffect(() => {
+    if (!localeReady) return;
     document.documentElement.lang = locale;
     document.documentElement.dir = locale === 'ar' ? 'rtl' : 'ltr';
     window.localStorage.setItem('multazim-locale', locale);
     document.cookie = `multazim-locale=${locale};path=/;max-age=31536000;samesite=lax`;
-  }, [locale]);
+  }, [locale, localeReady]);
   const value = useMemo(() => ({ locale, setLocale: updateLocale, t: (text: string) => locale === 'en' ? translations[text] ?? text : text, tr: (arabic: string, english: string) => locale === 'ar' ? arabic : english, formatNumber: (value: number) => new Intl.NumberFormat(locale === 'ar' ? 'ar-SA' : 'en-SA').format(value), formatDate: (value: string | Date) => new Intl.DateTimeFormat(locale === 'ar' ? 'ar-SA' : 'en-SA', { dateStyle: 'medium' }).format(new Date(value)) }), [locale]);
   return <LocaleContext.Provider value={value}>{children}</LocaleContext.Provider>;
 }
