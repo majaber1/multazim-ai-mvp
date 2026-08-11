@@ -119,3 +119,14 @@ def test_notifications_and_audit_package_exports():
     package = client.get("/v1/audits/package.json", headers=headers(DEMO_ORGANIZATION_ID))
     assert package.status_code == 200
     assert package.headers["content-disposition"].endswith("multazim-audit-package.json")
+
+
+def test_pdf_excel_and_catalog_exports():
+    from app.main import DEMO_ORGANIZATION_ID
+    auth = headers(DEMO_ORGANIZATION_ID)
+    pdf = client.get("/v1/reports/executive.pdf", headers=auth)
+    assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF")
+    xlsx = client.get("/v1/reports/executive.xlsx", headers=auth)
+    assert xlsx.status_code == 200 and xlsx.content.startswith(b"PK")
+    catalog = client.get("/v1/frameworks/catalog")
+    assert catalog.status_code == 200 and catalog.json()["count"] == 5

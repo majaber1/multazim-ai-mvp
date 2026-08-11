@@ -1,6 +1,7 @@
 services:
   postgres:
     image: pgvector/pgvector:pg16
+    profiles: ["postgres"]
     environment:
       POSTGRES_USER: multazim
       POSTGRES_PASSWORD: multazim
@@ -12,12 +13,14 @@ services:
 
   redis:
     image: redis:7-alpine
+    profiles: ["redis"]
     ports: ["6379:6379"]
 
   api:
     build: ./apps/api
     environment:
-      DATABASE_URL: postgresql://multazim:multazim@postgres:5432/multazim
+      SQLITE_PATH: /data/multazim.db
+      PUBLIC_API_URL: http://localhost:8000
       REDIS_URL: redis://redis:6379
       AI_PROVIDER: mock
       APP_ENV: development
@@ -26,7 +29,6 @@ services:
     volumes:
       - evidence_data:/data/evidence
     ports: ["8000:8000"]
-    depends_on: [postgres, redis]
 
   web:
     build: ./apps/web

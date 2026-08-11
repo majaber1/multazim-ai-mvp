@@ -37,10 +37,21 @@ python -m venv .venv
 
 API docs: http://localhost:8000/docs
 
+The default local API uses durable SQLite at `.data/multazim.db`; no database account or
+separate database container is required. Uploaded evidence is stored under `.data/evidence`.
+This is the simplest reliable setup for one server. For multiple API replicas, enable the
+PostgreSQL profile or point `DATABASE_URL` at managed Neon/Supabase PostgreSQL.
+
 Full stack:
 
 ```bash
 docker compose up --build
+```
+
+Optional PostgreSQL/pgvector and Redis services:
+
+```bash
+docker compose --profile postgres --profile redis up --build
 ```
 
 ## Verification
@@ -53,7 +64,9 @@ python -m pytest apps/api/tests
 
 ## Production deployment
 
-Build the web and API images from their Dockerfiles, provision PostgreSQL 16 with pgvector and Redis, run `infra/schema.sql` through a controlled migration process, configure an external OIDC identity provider, replace demo header authentication, configure strict origins and rate limits at the gateway, and connect S3-compatible storage with signed URLs plus malware scanning. Secrets must be supplied by the deployment platform and never committed.
+Build the web and API images from their Dockerfiles. SQLite plus a mounted volume is supported for a single API instance. Multi-instance production should use PostgreSQL 16 (Neon or Supabase free tiers are suitable starters), run `infra/schema.sql` through a controlled migration, and configure an external OIDC identity provider. Local object storage is supported for a single server; multi-instance deployments should use S3-compatible storage such as MinIO, Cloudflare R2, Supabase Storage, or Vercel Blob. Secrets must be supplied by the deployment platform and never committed.
+
+Executive reports are available as PDF, Excel, and CSV from the Policies & Reports page and through `/v1/reports/executive.{pdf,xlsx,csv}`.
 
 Before production, complete every item marked `BLOCKED` or security-sensitive `PLANNED` in the implementation status.
 

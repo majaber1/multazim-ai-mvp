@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.1 — 2026-08-11
+
+- Added durable zero-configuration SQLite repositories for organizations, actions, evidence metadata, and audit events.
+- Added local object storage with upload integrity and basic malware/executable signature rejection.
+- Added PDF and formatted Excel executive reports alongside CSV and JSON exports.
+- Added a source-status regulatory catalog API and bilingual report controls.
+- Made PostgreSQL and Redis optional Docker Compose profiles for the single-container edition.
+
 ## 0.2.0 - 2026-08-08
 
 - Repositioned the MVP as Multazim Saudi Compliance Intelligence Platform.

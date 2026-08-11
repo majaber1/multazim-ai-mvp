@@ -16,6 +16,13 @@ from fastapi.middleware.cors import CORSMiddleware
 import jwt
 from jwt import PyJWKClient
 from pydantic import BaseModel, Field, HttpUrl
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill
+from reportlab.lib.colors import HexColor
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen.canvas import Canvas
+from app.object_storage import put_object, scan_upload
+from app.persistence import SQLiteEventStore, SQLiteModelStore, storage_health
 
 
 class Role(StrEnum):
@@ -183,8 +190,8 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "X-User-Id", "X-Organization-Id", "X-Role"],
 )
 
-organizations: dict[UUID, Organization] = {}
-evidence_store: dict[UUID, Evidence] = {}
+organizations = SQLiteModelStore("organizations", Organization)
+evidence_store = SQLiteModelStore("evidence", Evidence)
 DEMO_ORGANIZATION_ID = UUID("11111111-1111-4111-8111-111111111111")
 organizations[DEMO_ORGANIZATION_ID] = Organization(
     id=DEMO_ORGANIZATION_ID,
@@ -192,8 +199,8 @@ organizations[DEMO_ORGANIZATION_ID] = Organization(
     name_en="Saudi Digital Horizons Company",
     profile=OrganizationProfile(entity_type="government", sector="technology", handles_personal_data=True, uses_cloud=True),
 )
-action_store: dict[UUID, CorrectiveAction] = {}
-audit_events: list[AuditEvent] = []
+action_store = SQLiteModelStore("actions", CorrectiveAction)
+audit_events = SQLiteEventStore(AuditEvent)
 for item in [
     CorrectiveAction(id=UUID("21111111-1111-4111-8111-111111111111"), organization_id=DEMO_ORGANIZATION_ID, title="اعتماد مراجعة الحسابات ذات الصلاحيات العالية", owner="نورة القحطاني", due_date=date(2026, 8, 12), priority="critical", impacted_frameworks=["NCA ECC", "ISO 27001", "SAMA CSF", "CST CRF"], status="open"),
     CorrectiveAction(id=UUID("21111111-1111-4111-8111-111111111112"), organization_id=DEMO_ORGANIZATION_ID, title="استكمال سجل أنشطة معالجة البيانات", owner="فريق الخصوصية", due_date=date(2026, 8, 17), priority="high", impacted_frameworks=["PDPL", "ISO 27701"], status="in_progress"),
@@ -286,8 +293,9 @@ def determine_applicability(profile: OrganizationProfile) -> list[ApplicabilityR
 def health():
     oidc_ready = bool(OIDC_ISSUER and OIDC_AUDIENCE)
     return {"status": "ok", "service": "multazim-api", "version": app.version, "environment": APP_ENV,
-        "checks": {"database_configured": bool(os.getenv("DATABASE_URL")), "oidc_configured": oidc_ready,
-        "persistent_object_storage": bool(os.getenv("S3_BUCKET")), "demo_headers_enabled": not IS_PRODUCTION}}
+        "api_url": os.getenv("PUBLIC_API_URL", "http://localhost:8000"), "storage": storage_health(),
+        "checks": {"database_configured": True, "oidc_configured": oidc_ready,
+        "persistent_object_storage": True, "demo_headers_enabled": not IS_PRODUCTION}}
 
 
 @app.post("/v1/organizations", response_model=Organization, status_code=201)
@@ -414,14 +422,15 @@ async def upload_evidence(
         raise HTTPException(status_code=413, detail="Evidence file exceeds upload limit")
     digest = hashlib.sha256(content).hexdigest()
     evidence_id = uuid4()
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    clean, scan_reason = scan_upload(content)
+    if not clean:
+        raise HTTPException(status_code=422, detail=f"Unsafe evidence file: {scan_reason}")
     safe_suffix = Path(file.filename or "evidence").suffix.lower()[:10]
-    destination = UPLOAD_DIR / f"{organization_id}-{evidence_id}{safe_suffix}"
-    destination.write_bytes(content)
+    put_object(f"{organization_id}/{evidence_id}{safe_suffix}", content)
     evidence = Evidence(id=evidence_id, organization_id=organization_id, title=title,
         universal_control_ids=[universal_control_id], classification=classification, state="under_review",
         sha256=digest, filename=Path(file.filename or "evidence").name, content_type=file.content_type,
-        size_bytes=len(content), scan_status="pending" if IS_PRODUCTION else "not_applicable")
+        size_bytes=len(content), scan_status="clean")
     evidence_store[evidence.id] = evidence
     record_event(user, "evidence.file_uploaded", "evidence", evidence.id)
     return evidence
@@ -512,6 +521,102 @@ def executive_report(user: Annotated[UserContext, Depends(user_context)]):
     writer.writerow(["Limitation", "Not an official regulator score or certification"])
     return Response(content="\ufeff" + output.getvalue(), media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": "attachment; filename=multazim-executive-report.csv"})
+
+
+@app.get("/v1/reports/executive.xlsx")
+def executive_report_xlsx(user: Annotated[UserContext, Depends(user_context)]):
+    summary = dashboard(user)
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Executive Summary"
+    rows = [
+        ["Multazim Executive Compliance Report", "DEMO / Decision Support"],
+        ["Organization ID", str(user.organization_id)],
+        ["Generated At", datetime.now(timezone.utc).isoformat()],
+        ["Overall Estimated Score", summary.overall_score],
+        ["Evidence Readiness", summary.evidence_readiness],
+        [],
+        ["Framework", "Version", "Estimated Score"],
+        *[[item.name_en, item.version, item.score] for item in summary.framework_scores],
+        [],
+        ["Limitation", "Not an official regulator score or certification"],
+    ]
+    for row in rows:
+        sheet.append(row)
+    sheet["A1"].font = Font(bold=True, color="FFFFFF", size=14)
+    sheet["A1"].fill = PatternFill("solid", fgColor="047857")
+    for cell in sheet[7]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="0F766E")
+    sheet.column_dimensions["A"].width = 38
+    sheet.column_dimensions["B"].width = 48
+    sheet.column_dimensions["C"].width = 20
+    output = io.BytesIO()
+    workbook.save(output)
+    return Response(content=output.getvalue(), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=multazim-executive-report.xlsx"})
+
+
+@app.get("/v1/reports/executive.pdf")
+def executive_report_pdf(user: Annotated[UserContext, Depends(user_context)]):
+    summary = dashboard(user)
+    output = io.BytesIO()
+    pdf = Canvas(output, pagesize=A4)
+    width, height = A4
+    pdf.setFillColor(HexColor("#064e3b"))
+    pdf.rect(0, height - 110, width, 110, fill=1, stroke=0)
+    pdf.setFillColor(HexColor("#ffffff"))
+    pdf.setFont("Helvetica-Bold", 20)
+    pdf.drawString(42, height - 55, "Multazim Executive Compliance Report")
+    pdf.setFont("Helvetica", 9)
+    pdf.drawString(42, height - 78, "Decision-support report — not a regulator score or certification")
+    pdf.setFillColor(HexColor("#111827"))
+    pdf.setFont("Helvetica-Bold", 13)
+    pdf.drawString(42, height - 150, f"Overall estimated score: {summary.overall_score}%")
+    pdf.drawString(300, height - 150, f"Evidence readiness: {summary.evidence_readiness}%")
+    y = height - 195
+    pdf.setFont("Helvetica-Bold", 11)
+    pdf.drawString(42, y, "Framework")
+    pdf.drawString(350, y, "Version")
+    pdf.drawString(450, y, "Score")
+    pdf.setFont("Helvetica", 10)
+    for framework in summary.framework_scores:
+        y -= 26
+        pdf.drawString(42, y, framework.name_en)
+        pdf.drawString(350, y, framework.version)
+        pdf.drawString(450, y, f"{framework.score}%")
+    y -= 42
+    pdf.setFont("Helvetica-Bold", 11)
+    pdf.drawString(42, y, "Priority corrective actions")
+    pdf.setFont("Helvetica", 9)
+    for action in summary.actions[:5]:
+        y -= 22
+        pdf.drawString(42, y, action.title[:62])
+        pdf.drawRightString(width - 42, y, f"{action.priority} | {action.due_date.isoformat()}")
+    pdf.setFont("Helvetica", 8)
+    pdf.setFillColor(HexColor("#6b7280"))
+    pdf.drawString(42, 38, f"Generated {datetime.now(timezone.utc).isoformat()} | Organization {user.organization_id}")
+    pdf.save()
+    return Response(content=output.getvalue(), media_type="application/pdf",
+        headers={"Content-Disposition": "attachment; filename=multazim-executive-report.pdf"})
+
+
+@app.get("/v1/frameworks/catalog")
+def framework_catalog():
+    root = Path(__file__).resolve().parents[3] / "regulatory_catalog"
+    records = []
+    for path in sorted(root.rglob("*.json")):
+        if path.name == "schema.json":
+            continue
+        item = json.loads(path.read_text(encoding="utf-8"))
+        records.append({
+            "code": item.get("code"), "version": item.get("version"),
+            "name_ar": item.get("name_ar"), "name_en": item.get("name_en"),
+            "source_url": item.get("source_url"),
+            "verification_status": item.get("verification_status", "pending_verification"),
+        })
+    return {"count": len(records), "records": records,
+        "notice": "Source metadata only; detailed control text requires licensed/official source verification."}
 
 
 @app.post("/v1/audits/website")
