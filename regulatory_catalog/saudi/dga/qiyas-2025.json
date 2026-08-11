@@ -1,0 +1,6 @@
+{
+  "code": "DGA-QIYAS-2025", "regulator": "DGA", "name_ar": "المعايير الأساسية للتحول الرقمي 2025",
+  "name_en": "Digital Transformation Basic Standards 2025", "version": "2025", "status": "VERIFIED_METADATA",
+  "official_source": "https://dga.gov.sa/en/Standards_Of_Digital_Transformation",
+  "facts": {"sections": 10, "axes": 23, "standards": 95, "scope": "Saudi government entities"}, "controls": []
+}

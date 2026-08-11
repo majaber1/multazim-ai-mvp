@@ -5,12 +5,16 @@
 :root { color-scheme: light; }
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
-body { margin: 0; background: #f8fafc; color: #0f172a; }
+body { margin: 0; background: #f5f7f6; color: #12201b; }
+button, a { -webkit-tap-highlight-color: transparent; }
+button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid rgba(5, 150, 105, .28); outline-offset: 2px; }
 .mesh {
   background-image:
     radial-gradient(circle at 15% 20%, rgba(16,185,129,.18), transparent 28%),
     radial-gradient(circle at 85% 15%, rgba(14,165,233,.16), transparent 25%),
     linear-gradient(180deg,#f8fafc 0%,#ffffff 70%);
 }
-.card { @apply rounded-3xl border border-slate-200 bg-white shadow-soft; }
+.card { @apply rounded-2xl border border-slate-200 bg-white shadow-soft; }
 .badge { @apply inline-flex items-center rounded-full px-3 py-1 text-xs font-bold; }
+.eyebrow { @apply text-[10px] font-black uppercase tracking-[.18em] text-emerald-700; }
+::selection { background: rgba(16,185,129,.22); color: #052e16; }
