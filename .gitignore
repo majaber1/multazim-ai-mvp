@@ -12,3 +12,4 @@ __pycache__
 apps/web/playwright-report/
 apps/web/test-results/
 tmp/
+.qa-*.log

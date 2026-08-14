@@ -11,6 +11,40 @@ def headers(org_id, role="organization_admin"):
     return {"X-User-Id": "test-user", "X-Organization-Id": str(org_id), "X-Role": role}
 
 
+def test_application_auth_profile_organization_membership_and_logout():
+    email = f"onboarding-{uuid4()}@example.sa"
+    signup = client.post("/v1/auth/signup", json={"full_name": "Onboarding Owner", "email": email, "password": "StrongPass!2026"})
+    assert signup.status_code == 201
+    token = signup.json()["token"]
+    auth = {"Authorization": f"Bearer {token}"}
+    assert client.get("/v1/me", headers=auth).json()["organization"] is None
+    duplicate = client.post("/v1/auth/signup", json={"full_name": "Duplicate", "email": email.upper(), "password": "StrongPass!2026"})
+    assert duplicate.status_code == 409
+    profile = client.put("/v1/me/profile", headers=auth, json={"full_name": "University Compliance Owner", "mobile": "+966500000000", "job_title": "Compliance Manager", "preferred_language": "en"})
+    assert profile.status_code == 200 and profile.json()["user"]["preferred_language"] == "en"
+    organization = client.post("/v1/onboarding/organization", headers=auth, json={
+        "name_ar": "جامعة الإمام محمد بن سعود الإسلامية", "name_en": "Imam Mohammad Ibn Saud Islamic University",
+        "organization_type": "university", "country": "Saudi Arabia", "city": "Riyadh", "website": "https://imamu.edu.sa",
+        "primary_contact": "Compliance Office", "profile": {"entity_type": "government", "sector": "education",
+        "handles_personal_data": True, "provides_digital_services": True, "uses_cloud": True,
+        "has_cybersecurity_department": True, "has_grc_team": True, "employee_size": "5000+",
+        "current_status": {"information_security_policies": "partially"}, "objectives": ["assess", "regulatory", "audit"]}
+    })
+    assert organization.status_code == 201
+    workspace = client.get("/v1/organization/workspace", headers=auth)
+    assert workspace.status_code == 200 and workspace.json()["organization"]["id"] == organization.json()["id"]
+    signin = client.post("/v1/auth/signin", json={"email": email, "password": "StrongPass!2026", "remember": True})
+    assert signin.status_code == 200 and signin.json()["organization"]["id"] == organization.json()["id"]
+    signed_in_token = signin.json()["token"]
+    assert client.post("/v1/auth/logout", headers={"Authorization": f"Bearer {signed_in_token}"}).status_code == 204
+    assert client.get("/v1/me", headers={"Authorization": f"Bearer {signed_in_token}"}).status_code == 401
+
+
+def test_invalid_credentials_do_not_reveal_account_state():
+    response = client.post("/v1/auth/signin", json={"email": "missing@example.sa", "password": "WrongPassword2026"})
+    assert response.status_code == 401 and response.json()["detail"] == "Email or password is incorrect"
+
+
 def test_health_and_security_headers():
     response = client.get("/health")
     assert response.status_code == 200

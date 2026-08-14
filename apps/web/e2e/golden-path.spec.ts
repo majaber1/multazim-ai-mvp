@@ -1,8 +1,9 @@
 import {expect,test} from '@playwright/test';
+import {onboardOrganization} from './auth-helper';
 
 test('bilingual compliance golden path',async({page})=>{
   const ar=test.info().project.name.startsWith('ar-');
-  await page.addInitScript(locale=>localStorage.setItem('multazim-locale',locale),ar?'ar':'en');
+  await onboardOrganization(page,test.info(),ar);
   await page.goto('/evidence');
   await expect(page.locator('html')).toHaveAttribute('dir',ar?'rtl':'ltr');
   await page.getByRole('button',{name:ar?'رفع دليل':'Upload evidence'}).click();
@@ -14,8 +15,10 @@ test('bilingual compliance golden path',async({page})=>{
   await page.goto('/assessment');
   await expect(page.locator('html')).toHaveAttribute('lang',ar?'ar':'en');
   const start=page.getByRole('button',{name:ar?'بدء التقييم':'Start assessment'});
-  if(await start.isVisible().catch(()=>false))await start.click();
+  await expect(start).toBeVisible({timeout:15000});
+  await start.click();
   const status=page.getByLabel(ar?'حالة الضابط':'Control status');
+  await expect(status).toBeVisible({timeout:15000});
   await status.selectOption('non_compliant');
   await page.getByLabel(ar?'المبرر':'Rationale').fill(ar?'لا توجد مراجعة موثقة للحسابات ذات الصلاحيات العالية.':'No documented privileged-account review is available.');
   await page.getByLabel(ar?'ملاحظات المقيّم':'Assessor comments').fill(ar?'يتطلب إجراءً تصحيحيًا.':'Corrective action is required.');

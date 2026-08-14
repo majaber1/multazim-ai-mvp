@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import csv
 import hashlib
 import io
@@ -10,6 +10,7 @@ import os
 import ipaddress
 import re
 import socket
+import secrets
 from pathlib import Path
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
@@ -48,6 +49,64 @@ class UserContext(BaseModel):
     role: Role
 
 
+class AccountContext(BaseModel):
+    user_id: UUID
+    organization_id: UUID | None = None
+    role: Role | None = None
+
+
+class UserAccount(BaseModel):
+    id: UUID
+    email: str
+    full_name: str
+    password_hash: str
+    mobile: str = ""
+    job_title: str = ""
+    preferred_language: Literal["ar", "en"] = "ar"
+    active: bool = True
+    created_at: datetime
+
+
+class OrganizationMembership(BaseModel):
+    id: UUID
+    user_id: UUID
+    organization_id: UUID
+    role: Role = Role.ORG_ADMIN
+    created_at: datetime
+
+
+class ApplicationSession(BaseModel):
+    id: UUID
+    user_id: UUID
+    token_hash: str
+    expires_at: datetime
+    created_at: datetime
+
+
+class SignUpRequest(BaseModel):
+    full_name: str = Field(min_length=2, max_length=160)
+    email: str = Field(min_length=5, max_length=254)
+    password: str = Field(min_length=10, max_length=128)
+
+
+class SignInRequest(BaseModel):
+    email: str
+    password: str
+    remember: bool = False
+
+
+class ProfileUpdate(BaseModel):
+    full_name: str = Field(min_length=2, max_length=160)
+    mobile: str = Field(default="", max_length=40)
+    job_title: str = Field(default="", max_length=120)
+    preferred_language: Literal["ar", "en"] = "ar"
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=10, max_length=128)
+
+
 class OrganizationProfile(BaseModel):
     entity_type: Literal["government", "semi_government", "private", "non_profit"]
     sector: str
@@ -61,16 +120,31 @@ class OrganizationProfile(BaseModel):
     cma_regulated: bool = False
     subject_to_e_invoicing: bool = False
     seeks_iso_certification: bool = False
+    provides_digital_services: bool = False
+    has_cybersecurity_department: bool = False
+    has_grc_team: bool = False
+    has_branches: bool = False
+    employee_size: str = ""
+    existing_certifications: list[str] = Field(default_factory=list)
+    current_status: dict[str, Literal["yes", "no", "partially", "unknown"]] = Field(default_factory=dict)
+    objectives: list[str] = Field(default_factory=list)
 
 
 class OrganizationCreate(BaseModel):
     name_ar: str = Field(min_length=2, max_length=200)
     name_en: str = Field(min_length=2, max_length=200)
+    organization_type: str = "company"
+    country: str = "Saudi Arabia"
+    city: str = ""
+    website: str = ""
+    primary_contact: str = ""
     profile: OrganizationProfile
 
 
 class Organization(OrganizationCreate):
     id: UUID
+    onboarding_completed: bool = False
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class ApplicabilityResult(BaseModel):
@@ -404,13 +478,18 @@ app.add_middleware(
 )
 
 organizations = model_store("organizations", Organization)
+user_store = model_store("user_accounts", UserAccount)
+membership_store = model_store("organization_memberships", OrganizationMembership)
+session_store = model_store("application_sessions", ApplicationSession)
 evidence_store = model_store("evidence", Evidence)
 DEMO_ORGANIZATION_ID = UUID("11111111-1111-4111-8111-111111111111")
 organizations[DEMO_ORGANIZATION_ID] = Organization(
     id=DEMO_ORGANIZATION_ID,
     name_ar="شركة آفاق الرقمية السعودية",
     name_en="Saudi Digital Horizons Company",
+    organization_type="company",
     profile=OrganizationProfile(entity_type="government", sector="technology", handles_personal_data=True, uses_cloud=True),
+    onboarding_completed=True,
 )
 action_store = model_store("actions", CorrectiveAction)
 audit_events = EventStore(AuditEvent)
@@ -443,6 +522,57 @@ async def security_headers(request: Request, call_next):
     return response
 
 
+def normalize_email(value: str) -> str:
+    email = value.strip().lower()
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+        raise HTTPException(status_code=422, detail="Enter a valid work email")
+    return email
+
+
+def hash_password(password: str, salt: bytes | None = None) -> str:
+    salt = salt or secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 600_000)
+    return f"pbkdf2_sha256$600000${salt.hex()}${digest.hex()}"
+
+
+def verify_password(password: str, encoded: str) -> bool:
+    try:
+        algorithm, iterations, salt, expected = encoded.split("$", 3)
+        if algorithm != "pbkdf2_sha256":
+            return False
+        actual = hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt), int(iterations)).hex()
+        return secrets.compare_digest(actual, expected)
+    except (ValueError, TypeError):
+        return False
+
+
+def create_session(user_id: UUID, remember: bool = False) -> tuple[str, ApplicationSession]:
+    token = f"mz_{secrets.token_urlsafe(48)}"
+    now = datetime.now(timezone.utc)
+    item = ApplicationSession(id=uuid4(), user_id=user_id, token_hash=hashlib.sha256(token.encode()).hexdigest(),
+        expires_at=now + timedelta(days=30 if remember else 1), created_at=now)
+    session_store[item.id] = item
+    return token, item
+
+
+def account_context(authorization: Annotated[str | None, Header()] = None) -> AccountContext:
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Authentication required")
+    token = authorization.split(" ", 1)[1]
+    if not token.startswith("mz_"):
+        raise HTTPException(status_code=401, detail="Invalid application session")
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    session = next((item for item in session_store.values() if secrets.compare_digest(item.token_hash, token_hash)), None)
+    if not session or session.expires_at <= datetime.now(timezone.utc):
+        raise HTTPException(status_code=401, detail="Session expired")
+    user = user_store.get(session.user_id)
+    if not user or not user.active:
+        raise HTTPException(status_code=401, detail="Account is unavailable")
+    membership = next((item for item in membership_store.values() if item.user_id == user.id), None)
+    return AccountContext(user_id=user.id, organization_id=membership.organization_id if membership else None,
+        role=membership.role if membership else None)
+
+
 def user_context(
     authorization: Annotated[str | None, Header()] = None,
     x_user_id: Annotated[str | None, Header()] = None,
@@ -450,10 +580,15 @@ def user_context(
     x_role: Annotated[Role | None, Header()] = None,
 ) -> UserContext:
     if authorization and authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1]
+        if token.startswith("mz_"):
+            account = account_context(authorization)
+            if not account.organization_id or not account.role:
+                raise HTTPException(status_code=409, detail="Create an organization before using this module")
+            return UserContext(user_id=str(account.user_id), organization_id=account.organization_id, role=account.role)
         if not OIDC_ISSUER or not OIDC_AUDIENCE:
             raise HTTPException(status_code=503, detail="OIDC is not configured")
         try:
-            token = authorization.split(" ", 1)[1]
             signing_key = PyJWKClient(f"{OIDC_ISSUER}/.well-known/jwks.json").get_signing_key_from_jwt(token)
             claims = jwt.decode(token, signing_key.key, algorithms=["RS256"], audience=OIDC_AUDIENCE, issuer=OIDC_ISSUER)
             return UserContext(user_id=str(claims["sub"]), organization_id=UUID(str(claims["organization_id"])), role=Role(claims["role"]))
@@ -546,6 +681,108 @@ def health():
         "api_url": os.getenv("PUBLIC_API_URL", "http://localhost:8000"), "storage": storage_health(),
         "checks": {"database_configured": True, "oidc_configured": oidc_ready,
         "persistent_object_storage": True, "demo_headers_enabled": not IS_PRODUCTION}}
+
+
+def account_payload(account: AccountContext) -> dict[str, object]:
+    user = user_store[account.user_id]
+    organization = organizations.get(account.organization_id) if account.organization_id else None
+    membership = next((item for item in membership_store.values() if item.user_id == user.id), None)
+    return {"user": {"id": str(user.id), "email": user.email, "full_name": user.full_name, "mobile": user.mobile,
+        "job_title": user.job_title, "preferred_language": user.preferred_language, "created_at": user.created_at},
+        "organization": organization.model_dump(mode="json") if organization else None,
+        "membership": membership.model_dump(mode="json") if membership else None}
+
+
+@app.post("/v1/auth/signup", status_code=201)
+def sign_up(payload: SignUpRequest):
+    email = normalize_email(payload.email)
+    if any(item.email == email for item in user_store.values()):
+        raise HTTPException(status_code=409, detail="An account with this email already exists")
+    user = UserAccount(id=uuid4(), email=email, full_name=payload.full_name.strip(),
+        password_hash=hash_password(payload.password), created_at=datetime.now(timezone.utc))
+    user_store[user.id] = user
+    token, session = create_session(user.id)
+    return {"token": token, "expires_at": session.expires_at, **account_payload(AccountContext(user_id=user.id))}
+
+
+@app.post("/v1/auth/signin")
+def sign_in(payload: SignInRequest):
+    email = normalize_email(payload.email)
+    user = next((item for item in user_store.values() if item.email == email), None)
+    if not user or not verify_password(payload.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Email or password is incorrect")
+    token, session = create_session(user.id, payload.remember)
+    membership = next((item for item in membership_store.values() if item.user_id == user.id), None)
+    return {"token": token, "expires_at": session.expires_at,
+        **account_payload(AccountContext(user_id=user.id, organization_id=membership.organization_id if membership else None,
+            role=membership.role if membership else None))}
+
+
+@app.post("/v1/auth/logout", status_code=204)
+def logout(authorization: Annotated[str | None, Header()] = None):
+    if authorization and authorization.lower().startswith("bearer "):
+        token_hash = hashlib.sha256(authorization.split(" ", 1)[1].encode()).hexdigest()
+        session = next((item for item in session_store.values() if secrets.compare_digest(item.token_hash, token_hash)), None)
+        if session:
+            del session_store[session.id]
+    return Response(status_code=204)
+
+
+@app.get("/v1/me")
+def current_account(account: Annotated[AccountContext, Depends(account_context)]):
+    return account_payload(account)
+
+
+@app.put("/v1/me/profile")
+def update_profile(payload: ProfileUpdate, account: Annotated[AccountContext, Depends(account_context)]):
+    user = user_store[account.user_id]
+    user_store[user.id] = user.model_copy(update=payload.model_dump())
+    return account_payload(account)
+
+
+@app.put("/v1/me/password", status_code=204)
+def change_password(payload: ChangePasswordRequest, account: Annotated[AccountContext, Depends(account_context)]):
+    user = user_store[account.user_id]
+    if not verify_password(payload.current_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    user_store[user.id] = user.model_copy(update={"password_hash": hash_password(payload.new_password)})
+    return Response(status_code=204)
+
+
+@app.post("/v1/onboarding/organization", response_model=Organization, status_code=201)
+def create_onboarding_organization(payload: OrganizationCreate,
+    account: Annotated[AccountContext, Depends(account_context)]):
+    existing = next((item for item in membership_store.values() if item.user_id == account.user_id), None)
+    if existing:
+        raise HTTPException(status_code=409, detail="This account already belongs to an organization")
+    organization = Organization(id=uuid4(), onboarding_completed=True, **payload.model_dump())
+    organizations[organization.id] = organization
+    membership = OrganizationMembership(id=uuid4(), user_id=account.user_id, organization_id=organization.id,
+        role=Role.ORG_ADMIN, created_at=datetime.now(timezone.utc))
+    membership_store[membership.id] = membership
+    return organization
+
+
+@app.get("/v1/organization/workspace")
+def organization_workspace(user: Annotated[UserContext, Depends(user_context)]):
+    organization = organizations.get(user.organization_id)
+    if not organization:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    applicability = determine_applicability(organization.profile)
+    tenant_assessments = [item for item in assessment_store.values() if item.organization_id == user.organization_id]
+    tenant_actions = [item for item in action_store.values() if item.organization_id == user.organization_id and item.status != "completed"]
+    recent = sorted((item for item in audit_events if item.organization_id == user.organization_id), key=lambda item: item.occurred_at, reverse=True)[:5]
+    completed = 5 if organization.onboarding_completed else 1
+    if tenant_assessments:
+        completed += 1
+    if any(item.organization_id == user.organization_id for item in evidence_store.values()):
+        completed += 1
+    return {"organization": organization, "onboarding_completeness": 100 if organization.onboarding_completed else 25,
+        "readiness": next((item.overall_readiness for item in sorted(snapshot_store.values(), key=lambda x: x.captured_at, reverse=True)
+            if item.organization_id == user.organization_id), 0), "active_journeys": len(tenant_assessments),
+        "pending_actions": len(tenant_actions), "getting_started_completed": completed,
+        "recommendations": [item.model_dump(mode="json") for item in applicability if item.classification != "NOT_APPLICABLE"],
+        "recent_activity": [item.model_dump(mode="json") for item in recent]}
 
 
 @app.post("/v1/organizations", response_model=Organization, status_code=201)
@@ -664,17 +901,39 @@ def assessment_score(assessment_id: UUID, user: Annotated[UserContext, Depends(u
 @app.get("/v1/dashboard", response_model=DashboardSummary)
 def dashboard(user: Annotated[UserContext, Depends(user_context)]):
     tenant_actions = [item for item in action_store.values() if item.organization_id == user.organization_id]
+    tenant_assessments = [item for item in assessment_store.values() if item.organization_id == user.organization_id]
+    tenant_responses = [item for item in assessment_response_store.values() if item.organization_id == user.organization_id]
+    tenant_evidence = [item for item in evidence_store.values() if item.organization_id == user.organization_id and item.state not in {"archived", "superseded"}]
+    tenant_gaps = [item for item in gap_store.values() if item.organization_id == user.organization_id and item.status not in {"closed", "accepted_risk"}]
+    framework_names = {
+        "DGA-QIYAS-2025": ("معايير التحول الرقمي الأساسية", "Digital Transformation Basic Standards"),
+        "NCA-ECC-2-2024": ("الضوابط الأساسية للأمن السيبراني", "Essential Cybersecurity Controls"),
+        "SDAIA-PDPL": ("نظام حماية البيانات الشخصية", "Personal Data Protection Law"),
+        "ISO-27001-2022": ("نظام إدارة أمن المعلومات", "ISO/IEC 27001"),
+    }
+    weights = {"compliant": 100, "partially_compliant": 50, "non_compliant": 0}
+    framework_scores = []
+    for assessment in tenant_assessments:
+        responses = [item for item in tenant_responses if item.assessment_id == assessment.id and item.status in weights]
+        if not responses:
+            continue
+        total_weight = sum(item.weight for item in responses)
+        score = round(sum(weights[item.status] * item.weight for item in responses) / total_weight) if total_weight else 0
+        names = framework_names.get(assessment.framework_code, (assessment.framework_code, assessment.framework_code))
+        framework_scores.append(FrameworkMetric(code=assessment.framework_code, name_ar=names[0], name_en=names[1],
+            score=score, version=assessment.framework_version))
+    history = sorted((item for item in snapshot_store.values() if item.organization_id == user.organization_id), key=lambda item: item.captured_at)
+    overall = round(sum(item.score for item in framework_scores) / len(framework_scores)) if framework_scores else 0
+    evidence_readiness = round(sum(item.state == "accepted" for item in tenant_evidence) / len(tenant_evidence) * 100) if tenant_evidence else 0
+    organization = organizations.get(user.organization_id)
+    applicable = len([item for item in determine_applicability(organization.profile) if item.classification != "NOT_APPLICABLE"]) if organization else 0
     return DashboardSummary(
-        organization_id=user.organization_id, overall_score=76, evidence_readiness=68,
+        organization_id=user.organization_id, overall_score=overall, evidence_readiness=evidence_readiness,
         critical_gaps=sum(item.priority == "critical" and item.status != "completed" for item in tenant_actions),
-        applicable_frameworks=4, trend=4.2,
-        framework_scores=[
-            FrameworkMetric(code="DGA-QIYAS-2025", name_ar="قياس التحول الرقمي", name_en="DGA Qiyas", score=83, version="2025"),
-            FrameworkMetric(code="NCA-ECC-2-2024", name_ar="الضوابط الأساسية للأمن السيبراني", name_en="NCA ECC", score=78, version="2-2024"),
-            FrameworkMetric(code="SDAIA-PDPL", name_ar="نظام حماية البيانات الشخصية", name_en="Saudi PDPL", score=74, version="current"),
-            FrameworkMetric(code="ISO-27001-2022", name_ar="نظام إدارة أمن المعلومات", name_en="ISO/IEC 27001", score=67, version="2022"),
-        ], actions=tenant_actions, risk_distribution={"critical": 3, "high": 8, "medium": 14},
-        disclaimer_ar="بيانات تجريبية ودرجات ملتزم تقديرية وليست تقييمًا رسميًا صادرًا من جهة تنظيمية.",
+        applicable_frameworks=applicable, trend=(history[-1].overall_readiness - history[-2].overall_readiness) if len(history) >= 2 else 0,
+        framework_scores=framework_scores, actions=tenant_actions,
+        risk_distribution={level: sum(item.severity == level for item in tenant_gaps) for level in ("critical", "high", "medium")},
+        disclaimer_ar="درجات ملتزم مؤشرات داخلية مبنية على استجابات المؤسسة، وليست تقييمًا رسميًا صادرًا من جهة تنظيمية.",
     )
 
 

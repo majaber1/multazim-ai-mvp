@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+from threading import RLock
 from collections.abc import Iterator, MutableMapping
 from pathlib import Path
 from typing import Generic, TypeVar
@@ -22,6 +23,7 @@ class SQLiteModelStore(MutableMapping[UUID, T], Generic[T]):
         database_path = Path(os.getenv("SQLITE_PATH", default_path))
         database_path.parent.mkdir(parents=True, exist_ok=True)
         self.connection = sqlite3.connect(database_path, check_same_thread=False)
+        self.lock = RLock()
         self.connection.execute(
             "CREATE TABLE IF NOT EXISTS model_store "
             "(store TEXT NOT NULL, id TEXT NOT NULL, payload TEXT NOT NULL, "
@@ -32,40 +34,50 @@ class SQLiteModelStore(MutableMapping[UUID, T], Generic[T]):
         self.model = model
 
     def __getitem__(self, key: UUID) -> T:
-        row = self.connection.execute(
-            "SELECT payload FROM model_store WHERE store = ? AND id = ?",
-            (self.name, str(key)),
-        ).fetchone()
+        with self.lock:
+            row = self.connection.execute(
+                "SELECT payload FROM model_store WHERE store = ? AND id = ?",
+                (self.name, str(key)),
+            ).fetchone()
         if not row:
             raise KeyError(key)
         return self.model.model_validate_json(row[0])
 
     def __setitem__(self, key: UUID, value: T) -> None:
-        self.connection.execute(
-            "INSERT INTO model_store(store, id, payload) VALUES (?, ?, ?) "
-            "ON CONFLICT(store, id) DO UPDATE SET payload = excluded.payload",
-            (self.name, str(key), value.model_dump_json()),
-        )
-        self.connection.commit()
+        with self.lock:
+            self.connection.execute(
+                "INSERT INTO model_store(store, id, payload) VALUES (?, ?, ?) "
+                "ON CONFLICT(store, id) DO UPDATE SET payload = excluded.payload",
+                (self.name, str(key), value.model_dump_json()),
+            )
+            self.connection.commit()
 
     def __delitem__(self, key: UUID) -> None:
-        cursor = self.connection.execute(
-            "DELETE FROM model_store WHERE store = ? AND id = ?", (self.name, str(key))
-        )
-        self.connection.commit()
+        with self.lock:
+            cursor = self.connection.execute(
+                "DELETE FROM model_store WHERE store = ? AND id = ?", (self.name, str(key))
+            )
+            self.connection.commit()
         if not cursor.rowcount:
             raise KeyError(key)
 
     def __iter__(self) -> Iterator[UUID]:
-        rows = self.connection.execute(
-            "SELECT id FROM model_store WHERE store = ?", (self.name,)
-        ).fetchall()
+        with self.lock:
+            rows = self.connection.execute(
+                "SELECT id FROM model_store WHERE store = ?", (self.name,)
+            ).fetchall()
         return iter(UUID(row[0]) for row in rows)
 
+    def values(self):
+        with self.lock:
+            rows = self.connection.execute("SELECT payload FROM model_store WHERE store = ?", (self.name,)).fetchall()
+        return [self.model.model_validate_json(row[0]) for row in rows]
+
     def __len__(self) -> int:
-        return int(self.connection.execute(
-            "SELECT COUNT(*) FROM model_store WHERE store = ?", (self.name,)
-        ).fetchone()[0])
+        with self.lock:
+            return int(self.connection.execute(
+                "SELECT COUNT(*) FROM model_store WHERE store = ?", (self.name,)
+            ).fetchone()[0])
 
 
 class SQLiteEventStore:

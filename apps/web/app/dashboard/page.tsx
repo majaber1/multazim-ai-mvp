@@ -1,17 +1,11 @@
 import Link from 'next/link';
 import { AppShell } from '@/components/AppShell';
 import { StatusChip } from '@/components/StatusChip';
-import { getComplianceHistory, getDashboard } from '@/lib/api';
+import { getComplianceHistory, getDashboard } from '@/lib/dashboard-api';
 
 export const dynamic = 'force-dynamic';
 
 const statusAr: Record<string, string> = { open: 'مفتوح', planned: 'مخطط', in_progress: 'قيد التنفيذ', completed: 'مكتمل', blocked: 'متعثر' };
-const workstreams = [
-  { label: 'الحوكمة والسياسات', value: 86, tone: 'bg-emerald-500' },
-  { label: 'الأمن السيبراني', value: 78, tone: 'bg-cyan-500' },
-  { label: 'الخصوصية والبيانات', value: 72, tone: 'bg-violet-500' },
-  { label: 'استمرارية الأعمال', value: 64, tone: 'bg-amber-500' },
-];
 const roadmap = [
   { title: 'هوية مؤسسية وSSO', state: 'يحتاج إعداد', detail: 'OIDC جاهز برمجيًا وينتظر بيانات المزود.' },
   { title: 'قاعدة البيانات والتخزين', state: 'يحتاج ربط', detail: 'المخطط والترحيل جاهزان؛ يلزم PostgreSQL وObject Storage.' },
@@ -40,6 +34,7 @@ function Sparkline({values}:{values:number[]}) {
 
 export default async function Dashboard() {
   const [{ data, live },history] = await Promise.all([getDashboard(),getComplianceHistory()]);
+  if(!data)return <AppShell title="لوحة التحكم"><section className="card p-8"><h2 className="text-xl font-black">لا توجد بيانات امتثال بعد</h2><p className="mt-2 text-slate-600">ابدأ أول تقييم جاهزية لبناء لوحة مؤسستك.</p><Link href="/assessment" className="mt-5 inline-block rounded-xl bg-emerald-700 px-5 py-3 font-black text-white">ابدأ التقييم الأول</Link></section></AppShell>;
   const totalRisks = Object.values(data.risk_distribution).reduce((sum, value) => sum + value, 0);
   return <AppShell title="لوحة الامتثال التنفيذية">
     <section className="overflow-hidden rounded-[2rem] bg-slate-950 p-6 text-white shadow-[0_30px_80px_-35px_rgba(2,6,23,.75)] md:p-8">
@@ -49,22 +44,22 @@ export default async function Dashboard() {
       </div>
     </section>
 
-    <div className="mt-4 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-6 text-amber-950"><span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-amber-500"/><span><b>بيئة توضيحية:</b> {data.disclaimer_ar}</span></div>
+    <div className="mt-4 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-6 text-amber-950"><span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-amber-500"/><span><b>تنبيه منهجي:</b> {data.disclaimer_ar}</span></div>
 
     <section className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      <ExecutiveMetric label="الامتثال الإجمالي" value={`${data.overall_score}%`} detail="تحسن مستمر خلال آخر 90 يومًا" icon="score" accent="bg-emerald-500"/>
+      <ExecutiveMetric label="الامتثال الإجمالي" value={`${data.overall_score}%`} detail={history.length >= 2 ? `التغير بين آخر قياسين: ${data.trend}%` : 'يُحسب من استجابات التقييم المحفوظة'} icon="score" accent="bg-emerald-500"/>
       <ExecutiveMetric label="جاهزية الأدلة" value={`${data.evidence_readiness}%`} detail="الأدلة المقبولة والقابلة لإعادة الاستخدام" icon="evidence" accent="bg-cyan-500"/>
       <ExecutiveMetric label="الفجوات الحرجة" value={String(data.critical_gaps)} detail="تحتاج قرارًا أو معالجة فورية" icon="gap" accent="bg-rose-500"/>
       <ExecutiveMetric label="الأطر المنطبقة" value={String(data.applicable_frameworks)} detail="وفق ملف الجهة ونطاق أعمالها" icon="scope" accent="bg-violet-500"/>
     </section>
 
     <section className="mt-5 grid gap-5 xl:grid-cols-[1.25fr_.75fr]">
-      <article className="card p-6 md:p-7"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="eyebrow">تغطية الأطر</p><h2 className="mt-2 text-xl font-black">مستوى الجاهزية حسب الإطار</h2></div><Link href="/matrix" className="text-xs font-black text-emerald-700 hover:underline">فتح مصفوفة الامتثال ←</Link></div><div className="mt-7 space-y-6">{data.framework_scores.map((framework,index)=><div key={framework.code}><div className="mb-2 flex items-end justify-between gap-4"><div><b className="text-sm text-slate-900">{framework.name_ar}</b><p className="mt-1 text-[11px] text-slate-400" dir="ltr">{framework.name_en} · {framework.version}</p></div><b className="text-lg">{framework.score}%</b></div><div className="h-2.5 overflow-hidden rounded-full bg-slate-100"><div className={`h-full rounded-full ${['bg-emerald-500','bg-cyan-500','bg-violet-500','bg-amber-500'][index%4]}`} style={{width:`${framework.score}%`}}/></div></div>)}</div></article>
+      <article className="card p-6 md:p-7"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="eyebrow">تغطية الأطر</p><h2 className="mt-2 text-xl font-black">مستوى الجاهزية حسب الإطار</h2></div><Link href="/matrix" className="text-xs font-black text-emerald-700 hover:underline">فتح مصفوفة الامتثال ←</Link></div><div className="mt-7 space-y-6">{data.framework_scores.map((framework,index)=><div key={framework.code}><div className="mb-2 flex items-end justify-between gap-4"><div><b className="text-sm text-slate-900">{framework.name_ar}</b><p className="mt-1 text-[11px] text-slate-400" dir="ltr">{framework.name_en} · {framework.version}</p></div><b className="text-lg">{framework.score}%</b></div><div className="h-2.5 overflow-hidden rounded-full bg-slate-100"><div className={`h-full rounded-full ${['bg-emerald-500','bg-cyan-500','bg-violet-500','bg-amber-500'][index%4]}`} style={{width:`${framework.score}%`}}/></div></div>)}{data.framework_scores.length === 0 ? <p className="rounded-2xl border border-dashed p-5 text-sm text-slate-500">لا توجد نتائج أطر بعد. ابدأ تقييماً واحفظ الاستجابات لعرض المؤشرات.</p> : null}</div></article>
       <article className="card p-6 md:p-7"><p className="eyebrow">المخاطر المفتوحة</p><div className="mt-3 flex items-end justify-between"><div><h2 className="text-xl font-black">توزيع المخاطر</h2><p className="mt-1 text-xs text-slate-500">{totalRisks} مخاطرة تحت المتابعة</p></div><div className="grid h-20 w-20 place-items-center rounded-full bg-[conic-gradient(#ef4444_0_12%,#f97316_12%_44%,#f59e0b_44%_100%)]"><div className="grid h-14 w-14 place-items-center rounded-full bg-white text-lg font-black">{totalRisks}</div></div></div><div className="mt-7 grid grid-cols-3 gap-2">{[['critical','حرج','text-rose-700','bg-rose-50'],['high','عالٍ','text-orange-700','bg-orange-50'],['medium','متوسط','text-amber-700','bg-amber-50']].map(([key,label,text,bg])=><div key={key} className={`rounded-2xl p-3 text-center ${bg}`}><div className={`text-2xl font-black ${text}`}>{data.risk_distribution[key]??0}</div><div className="mt-1 text-[10px] font-bold text-slate-500">{label}</div></div>)}</div><div className="mt-6 rounded-2xl bg-slate-950 p-4 text-white"><p className="text-xs font-black text-emerald-300">أفضل فرصة للتحسين</p><p className="mt-2 text-sm leading-6 text-slate-300">إغلاق مراجعة الحسابات المميزة يرفع الجاهزية عبر أربعة أطر مترابطة.</p></div></article>
     </section>
 
     <section className="mt-5 grid gap-5 xl:grid-cols-[.78fr_1.22fr]">
-      <article className="card p-6"><div className="flex items-center justify-between"><div><p className="eyebrow">صحة البرنامج</p><h2 className="mt-2 text-xl font-black">مسارات العمل</h2></div><span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">4 مسارات</span></div><div className="mt-6 space-y-5">{workstreams.map(item=><div key={item.label}><div className="mb-2 flex justify-between text-xs"><b>{item.label}</b><span className="font-black text-slate-500">{item.value}%</span></div><div className="h-2 overflow-hidden rounded-full bg-slate-100"><div className={`h-full rounded-full ${item.tone}`} style={{width:`${item.value}%`}}/></div></div>)}</div></article>
+      <article className="card p-6"><div className="flex items-center justify-between"><div><p className="eyebrow">صحة البرنامج</p><h2 className="mt-2 text-xl font-black">مسارات العمل</h2></div><span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">{data.framework_scores.length} مسارات مقاسة</span></div><div className="mt-6 space-y-5">{data.framework_scores.map((item,index)=><div key={item.code}><div className="mb-2 flex justify-between text-xs"><b>{item.name_ar}</b><span className="font-black text-slate-500">{item.score}%</span></div><div className="h-2 overflow-hidden rounded-full bg-slate-100"><div className={`h-full rounded-full ${['bg-emerald-500','bg-cyan-500','bg-violet-500','bg-amber-500'][index%4]}`} style={{width:`${item.score}%`}}/></div></div>)}{data.framework_scores.length === 0 ? <p className="text-sm text-slate-500">ستظهر مسارات العمل بعد حفظ أول استجابة تقييم.</p> : null}</div></article>
       <article className="card overflow-hidden"><div className="flex items-center justify-between border-b px-6 py-5"><div><p className="eyebrow">التنفيذ</p><h2 className="mt-1 text-xl font-black">إجراءات الأولوية</h2></div><Link href="/gaps" className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-black hover:border-emerald-300 hover:text-emerald-700">عرض الكل</Link></div><div className="overflow-x-auto"><table className="w-full min-w-[680px] text-right text-sm"><thead className="bg-slate-50/80 text-[11px] text-slate-500"><tr>{['الإجراء','المالك','الموعد','الأثر','الحالة'].map(label=><th key={label} className="px-5 py-3 font-bold">{label}</th>)}</tr></thead><tbody className="divide-y divide-slate-100">{data.actions.map(action=><tr key={action.id} className="transition hover:bg-slate-50/70"><td className="max-w-xs px-5 py-4 font-bold text-slate-900">{action.title}</td><td className="px-5 py-4 text-slate-600">{action.owner}</td><td className="px-5 py-4 text-xs text-slate-500" dir="ltr">{action.due_date}</td><td className="px-5 py-4"><span className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-bold">{action.impacted_frameworks.length} أطر</span></td><td className="px-5 py-4"><StatusChip tone={action.priority==='critical'?'red':'amber'}>{statusAr[action.status]??action.status}</StatusChip></td></tr>)}</tbody></table></div></article>
     </section>
 

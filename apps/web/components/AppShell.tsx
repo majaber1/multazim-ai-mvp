@@ -9,11 +9,11 @@ import { Sidebar } from './Sidebar';
 import { useLocale } from './LocaleProvider';
 
 const routes = [
-  ['/dashboard','لوحة التحكم','Dashboard'],['/journeys','الرحلات التنظيمية','Regulatory Journeys'],['/universe','نطاق الامتثال','Compliance Scope'],['/frameworks','الأطر والمعايير','Frameworks'],['/assessment','التقييمات','Assessments'],['/evidence','مركز الأدلة','Evidence Center'],['/gaps','الفجوات وخطط المعالجة','Gaps & Actions'],['/matrix','مصفوفة الامتثال','Compliance Matrix'],['/calendar','تقويم الامتثال','Compliance Calendar'],['/audits','غرفة التدقيق','Audit Room'],['/regulatory-updates','التحديثات التنظيمية','Regulatory Updates'],['/documents','السياسات والتقارير','Policies & Reports'],
+  ['/workspace','مؤسستي','My Organization'],['/dashboard','نظرة عامة','Overview'],['/journeys','رحلات الامتثال','Compliance Journeys'],['/assessment','التقييمات','Assessments'],['/matrix','الضوابط','Controls'],['/gaps','المخاطر وخطط المعالجة','Risks & Actions'],['/evidence','الأدلة','Evidence'],['/documents','السياسات والتقارير','Policies & Reports'],['/services','جميع الخدمات','All Services'],['/profile','الملف الشخصي','My Profile'],
 ] as const;
-const mobileRoutes = routes.slice(0, 2).concat([routes[4], routes[5], routes[7]]);
+const mobileRoutes = [routes[0],routes[1],routes[2],routes[3],routes[6]];
 
-export function AppShell({ children, title, subtitle = 'شركة آفاق الرقمية السعودية — بيانات تجريبية' }: { children: React.ReactNode; title: string; subtitle?: string }) {
+export function AppShell({ children, title, subtitle = 'مساحة المؤسسة' }: { children: React.ReactNode; title: string; subtitle?: string }) {
   const { locale, setLocale, t, tr } = useLocale();
   const pathname = usePathname();
   const [collapsed,setCollapsed]=useState(false);
