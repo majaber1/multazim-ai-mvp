@@ -5,20 +5,33 @@ on:
 jobs:
   web-build:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/web
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: apps/web/package-lock.json
-      - run: npm install
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - run: npm run lint
       - run: npm run build
+      - run: npm audit --audit-level=high
   api-check:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: multazim
+          POSTGRES_PASSWORD: multazim_ci
+          POSTGRES_DB: multazim
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U multazim"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -26,3 +39,8 @@ jobs:
           python-version: '3.12'
       - run: pip install -r apps/api/requirements.txt
       - run: python -m compileall apps/api/app
+      - run: python scripts/validate_catalog.py
+      - run: python -m pytest apps/api/tests
+      - run: python scripts/migrate.py
+        env:
+          DATABASE_URL: postgresql://multazim:multazim_ci@localhost:5432/multazim

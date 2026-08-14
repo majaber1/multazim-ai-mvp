@@ -1,0 +1,5 @@
+{
+  "code": "NCA-CCC-2-2024", "regulator": "NCA", "name_ar": "ضوابط الأمن السيبراني للحوسبة السحابية",
+  "name_en": "Cloud Cybersecurity Controls", "version": "2-2024", "status": "CONTENT_PENDING_VERIFICATION",
+  "official_source": "https://nca.gov.sa/en/regulatory-documents/controls-list/ccc/", "facts": {"roles": ["cloud_service_provider", "cloud_service_tenant"]}, "controls": []
+}

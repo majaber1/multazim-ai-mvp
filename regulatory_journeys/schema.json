@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["code", "business_activity", "license", "authority", "platform", "official_sources", "requirements"],
+  "properties": {
+    "code": {"type": "string"},
+    "business_activity": {"type": "object"},
+    "license": {"type": "object"},
+    "authority": {"type": "object"},
+    "platform": {"type": "object"},
+    "official_sources": {"type": "array", "minItems": 1},
+    "requirements": {"type": "array", "minItems": 1}
+  }
+}
