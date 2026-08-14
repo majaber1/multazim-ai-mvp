@@ -1,57 +1,62 @@
-# ملتزم AI — Multazim AI
+# ملتزم | Multazim
 
-منصة SaaS عربية أولية لمساعدة المنشآت الصغيرة والمتوسطة في السعودية على تقييم جاهزية الامتثال، فحص المواقع، وإنشاء مسودات السياسات.
+Saudi Compliance Intelligence Platform — منصة الامتثال الذكية للمملكة
 
-## ما تم بناؤه
+Multazim is a bilingual foundation for determining which Saudi regulatory frameworks likely apply to an organization, measuring readiness, reusing evidence across mapped controls, tracking gaps and actions, and preparing for audits. It does not claim complete Saudi regulatory coverage and does not present internal scores as regulator-issued results.
 
-- Landing page عربية احترافية.
-- لوحة تحكم بدرجة امتثال، مخاطر، ومهام.
-- استبيان تقييم تفاعلي مع احتساب النتيجة.
-- فحص موقع MVP تجريبي.
-- مركز مستندات ومسودات سياسات.
-- Backend مبني بـ FastAPI.
-- PostgreSQL + pgvector وRedis عبر Docker Compose.
-- GitHub Actions لفحص البناء.
-- تصميم Responsive RTL.
+## Implemented in v0.2.0
 
-## التشغيل السريع
+- Explainable organization onboarding/applicability engine.
+- Versioned regulatory catalog and structured JSON import format.
+- Normalized PostgreSQL model with tenant-owned resources and RLS policies.
+- API RBAC and tenant-IDOR protection for the initial evidence workflow.
+- Executive dashboard, compliance universe, frameworks, evidence reuse, gaps/actions, matrix, audit room, and coverage views.
+- Official-source register and explicit pending-verification states.
+- Fictional bilingual demo organization and clearly labeled estimated scores.
 
-### الواجهة فقط
+See [implementation status](docs/IMPLEMENTATION_STATUS.md) for exact limitations.
+
+## Local development
+
+Requirements: Node.js 22+, Python 3.12+, or Docker Desktop.
 
 ```bash
-cd apps/web
 npm install
 npm run dev
 ```
 
-افتح: http://localhost:3000
+Web: http://localhost:3000
 
-### النظام كاملًا عبر Docker
+API:
+
+```bash
+python -m venv .venv
+.venv/Scripts/pip install -r apps/api/requirements.txt
+.venv/Scripts/uvicorn app.main:app --app-dir apps/api --reload
+```
+
+API docs: http://localhost:8000/docs
+
+Full stack:
 
 ```bash
 docker compose up --build
 ```
 
-- Web: http://localhost:3000
-- API docs: http://localhost:8000/docs
-- Health: http://localhost:8000/health
+## Verification
 
-## هيكل المشروع
-
-```text
-apps/web   Next.js + Tailwind
-apps/api   FastAPI
-infra      ملفات البنية المستقبلية
+```bash
+npm run build
+python scripts/validate_catalog.py
+python -m pytest apps/api/tests
 ```
 
-## المرحلة التالية
+## Production deployment
 
-1. ربط Better Auth أو Auth.js.
-2. إضافة Prisma أو SQLAlchemy migrations.
-3. ربط Tap للاشتراكات.
-4. ربط Resend للتنبيهات.
-5. إضافة RAG للمصادر الرسمية مع pgvector.
-6. إضافة OCR للفواتير والمستندات.
-7. إضافة PostHog وSentry.
+Build the web and API images from their Dockerfiles, provision PostgreSQL 16 with pgvector and Redis, run `infra/schema.sql` through a controlled migration process, configure an external OIDC identity provider, replace demo header authentication, configure strict origins and rate limits at the gateway, and connect S3-compatible storage with signed URLs plus malware scanning. Secrets must be supplied by the deployment platform and never committed.
 
-> تنبيه: مخرجات المنصة مسودات إرشادية وليست استشارة قانونية أو ضريبية.
+Before production, complete every item marked `BLOCKED` or security-sensitive `PLANNED` in the implementation status.
+
+## Important disclaimer
+
+Multazim output is decision support, not legal advice, certification, or an official regulator score. AI suggestions must be approved by authorized human assessors.

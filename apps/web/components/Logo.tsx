@@ -1,8 +1,2 @@
-export function Logo() {
-  return (
-    <div className="flex items-center gap-3">
-      <div className="grid h-11 w-11 place-items-center rounded-2xl bg-emerald-600 text-lg font-black text-white">م</div>
-      <div><div className="text-xl font-black">ملتزم AI</div><div className="text-xs text-slate-500">امتثالك واضح</div></div>
-    </div>
-  );
-}
+import Link from 'next/link';
+export function Logo(){return <Link href="/dashboard" className="flex items-center gap-3" aria-label="ملتزم"><div className="grid h-11 w-11 place-items-center rounded-xl bg-emerald-800 text-xl font-black text-white shadow-lg shadow-emerald-900/15">م</div><div><div className="text-xl font-black tracking-tight">ملتزم</div><div className="text-[10px] font-bold uppercase tracking-[.16em] text-emerald-700">Multazim</div></div></Link>}

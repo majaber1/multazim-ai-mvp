@@ -6,7 +6,9 @@ services:
       POSTGRES_PASSWORD: multazim
       POSTGRES_DB: multazim
     ports: ["5432:5432"]
-    volumes: ["postgres_data:/var/lib/postgresql/data"]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
 
   redis:
     image: redis:7-alpine
@@ -24,7 +26,8 @@ services:
   web:
     build: ./apps/web
     environment:
-      NEXT_PUBLIC_API_URL: http://api:8000
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      API_INTERNAL_URL: http://api:8000
     ports: ["3000:3000"]
     depends_on: [api]
 

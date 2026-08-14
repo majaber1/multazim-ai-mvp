@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["code", "regulator", "name_ar", "name_en", "version", "status", "official_source"],
+  "properties": {
+    "code": {"type": "string"}, "regulator": {"type": "string"},
+    "name_ar": {"type": "string"}, "name_en": {"type": "string"},
+    "version": {"type": "string"}, "status": {"enum": ["VERIFIED_METADATA", "CONTENT_PENDING_VERIFICATION"]},
+    "official_source": {"type": "string", "format": "uri"}, "facts": {"type": "object"},
+    "controls": {"type": "array"}
+  }
+}
