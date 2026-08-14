@@ -99,11 +99,15 @@ class Evidence(EvidenceCreate):
 
 class ActionCreate(BaseModel):
     organization_id: UUID
+    gap_id: UUID | None = None
     title: str = Field(min_length=3, max_length=250)
+    description: str = Field(default="", max_length=2000)
     owner: str = Field(min_length=2, max_length=120)
     due_date: date
     priority: Literal["critical", "high", "medium", "low"] = "medium"
     impacted_frameworks: list[str] = Field(default_factory=list)
+    dependency: str | None = Field(default=None, max_length=500)
+    completion_evidence_ids: list[UUID] = Field(default_factory=list)
 
 
 class CorrectiveAction(ActionCreate):
@@ -172,6 +176,95 @@ class JourneyReadinessRequest(BaseModel):
     completed_requirement_codes: list[str] = Field(default_factory=list, max_length=200)
 
 
+class AssessmentCampaignCreate(BaseModel):
+    organization_id: UUID
+    framework_code: str = Field(min_length=2, max_length=80)
+    framework_version: str = Field(min_length=1, max_length=40)
+    title: str = Field(min_length=3, max_length=250)
+    scope: str = Field(min_length=3, max_length=500)
+    assessor_ids: list[str] = Field(default_factory=list)
+
+
+class AssessmentCampaign(AssessmentCampaignCreate):
+    id: UUID
+    state: Literal["draft", "active", "under_review", "finalized"] = "draft"
+    created_at: datetime
+
+
+class AssessmentResponseUpsert(BaseModel):
+    control_code: str = Field(min_length=2, max_length=100)
+    status: Literal["compliant", "partially_compliant", "non_compliant", "not_assessed", "not_applicable"]
+    score: float | None = Field(default=None, ge=0, le=100)
+    rationale: str = Field(default="", max_length=2000)
+    comment: str = Field(default="", max_length=2000)
+    evidence_ids: list[UUID] = Field(default_factory=list)
+    review_state: Literal["draft", "submitted", "approved", "changes_requested"] = "draft"
+    mandatory: bool = False
+    weight: float = Field(default=1, gt=0, le=100)
+
+
+class AssessmentResponse(AssessmentResponseUpsert):
+    id: UUID
+    assessment_id: UUID
+    organization_id: UUID
+    assessor_id: str
+    updated_at: datetime
+
+
+class GapCreate(BaseModel):
+    organization_id: UUID
+    assessment_id: UUID | None = None
+    framework_code: str
+    control_code: str
+    finding: str = Field(min_length=3, max_length=2000)
+    current_state: str = Field(default="", max_length=2000)
+    target_state: str = Field(default="", max_length=2000)
+    severity: Literal["critical", "high", "medium", "low"]
+    risk: str = Field(default="", max_length=1000)
+    owner: str = Field(min_length=2, max_length=120)
+    due_date: date | None = None
+    remediation_plan: str = Field(default="", max_length=2000)
+
+
+class Gap(GapCreate):
+    id: UUID
+    status: Literal["open", "in_progress", "blocked", "ready_for_review", "closed", "accepted_risk"] = "open"
+    created_at: datetime
+
+
+class GapStatusUpdate(BaseModel):
+    status: Literal["open", "in_progress", "blocked", "ready_for_review", "closed", "accepted_risk"]
+
+
+class ApplicabilityOverride(BaseModel):
+    classification: Literal["MANDATORY", "LIKELY_APPLICABLE", "CONDITIONAL", "VOLUNTARY", "NOT_APPLICABLE", "NEEDS_REVIEW"]
+    justification: str = Field(min_length=10, max_length=2000)
+
+
+class ApplicabilityOverrideRecord(ApplicabilityOverride):
+    id: UUID
+    organization_id: UUID
+    framework_code: str
+    actor_id: str
+    updated_at: datetime
+
+
+class ControlMappingCreate(BaseModel):
+    organization_id: UUID
+    canonical_control_code: str = Field(min_length=2, max_length=100)
+    framework_control_codes: list[str] = Field(min_length=1)
+    mapping_type: Literal["equivalent", "partial", "supports", "related"]
+    confidence: Literal["authoritative", "expert_reviewed", "ai_suggested", "unverified"]
+    source: str = Field(min_length=3, max_length=500)
+    version: str = Field(min_length=1, max_length=40)
+
+
+class ControlMapping(ControlMappingCreate):
+    id: UUID
+    reviewer_id: str | None = None
+    approved: bool = False
+
+
 APP_ENV = os.getenv("APP_ENV", "development").lower()
 IS_PRODUCTION = APP_ENV == "production"
 ALLOWED_ORIGINS = [origin.strip() for origin in os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",") if origin.strip()]
@@ -205,6 +298,11 @@ organizations[DEMO_ORGANIZATION_ID] = Organization(
 )
 action_store = SQLiteModelStore("actions", CorrectiveAction)
 audit_events = SQLiteEventStore(AuditEvent)
+assessment_store = SQLiteModelStore("assessment_campaigns", AssessmentCampaign)
+assessment_response_store = SQLiteModelStore("assessment_responses", AssessmentResponse)
+gap_store = SQLiteModelStore("gaps", Gap)
+mapping_store = SQLiteModelStore("control_mappings", ControlMapping)
+applicability_override_store = SQLiteModelStore("applicability_overrides", ApplicabilityOverrideRecord)
 for item in [
     CorrectiveAction(id=UUID("21111111-1111-4111-8111-111111111111"), organization_id=DEMO_ORGANIZATION_ID, title="اعتماد مراجعة الحسابات ذات الصلاحيات العالية", owner="نورة القحطاني", due_date=date(2026, 8, 12), priority="critical", impacted_frameworks=["NCA ECC", "ISO 27001", "SAMA CSF", "CST CRF"], status="open"),
     CorrectiveAction(id=UUID("21111111-1111-4111-8111-111111111112"), organization_id=DEMO_ORGANIZATION_ID, title="استكمال سجل أنشطة معالجة البيانات", owner="فريق الخصوصية", due_date=date(2026, 8, 17), priority="high", impacted_frameworks=["PDPL", "ISO 27701"], status="in_progress"),
@@ -339,6 +437,80 @@ def organization_applicability(organization_id: UUID, user: Annotated[UserContex
     return determine_applicability(organization.profile)
 
 
+@app.put("/v1/organizations/{organization_id}/applicability/{framework_code}/override", response_model=ApplicabilityOverrideRecord)
+def override_applicability(organization_id: UUID, framework_code: str, payload: ApplicabilityOverride,
+    user: Annotated[UserContext, Depends(require_roles(Role.ORG_ADMIN, Role.COMPLIANCE_MANAGER))]):
+    assert_tenant(organization_id, user)
+    existing = next((item for item in applicability_override_store.values()
+        if item.organization_id == organization_id and item.framework_code == framework_code), None)
+    record = ApplicabilityOverrideRecord(id=existing.id if existing else uuid4(), organization_id=organization_id,
+        framework_code=framework_code, actor_id=user.user_id, updated_at=datetime.now(timezone.utc), **payload.model_dump())
+    applicability_override_store[record.id] = record
+    record_event(user, "applicability.overridden", "framework", record.id)
+    return record
+
+
+def tenant_assessment(assessment_id: UUID, user: UserContext) -> AssessmentCampaign:
+    item = assessment_store.get(assessment_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Resource not found")
+    assert_tenant(item.organization_id, user)
+    return item
+
+
+@app.get("/v1/assessments", response_model=list[AssessmentCampaign])
+def list_assessments(user: Annotated[UserContext, Depends(user_context)]):
+    return [item for item in assessment_store.values() if item.organization_id == user.organization_id]
+
+
+@app.post("/v1/assessments", response_model=AssessmentCampaign, status_code=201)
+def create_assessment(payload: AssessmentCampaignCreate,
+    user: Annotated[UserContext, Depends(require_roles(Role.ORG_ADMIN, Role.COMPLIANCE_MANAGER))]):
+    assert_tenant(payload.organization_id, user)
+    item = AssessmentCampaign(id=uuid4(), created_at=datetime.now(timezone.utc), **payload.model_dump())
+    assessment_store[item.id] = item
+    record_event(user, "assessment.created", "assessment", item.id)
+    return item
+
+
+@app.put("/v1/assessments/{assessment_id}/responses/{control_code}", response_model=AssessmentResponse)
+def upsert_assessment_response(assessment_id: UUID, control_code: str, payload: AssessmentResponseUpsert,
+    user: Annotated[UserContext, Depends(require_roles(Role.ORG_ADMIN, Role.COMPLIANCE_MANAGER, Role.ASSESSOR))]):
+    campaign = tenant_assessment(assessment_id, user)
+    if payload.control_code != control_code:
+        raise HTTPException(status_code=422, detail="Control code mismatch")
+    for evidence_id in payload.evidence_ids:
+        evidence = evidence_store.get(evidence_id)
+        if not evidence or evidence.organization_id != user.organization_id or evidence.state == "rejected":
+            raise HTTPException(status_code=422, detail="Evidence is unavailable for this organization")
+    existing = next((item for item in assessment_response_store.values()
+        if item.assessment_id == assessment_id and item.control_code == control_code), None)
+    response = AssessmentResponse(id=existing.id if existing else uuid4(), assessment_id=assessment_id,
+        organization_id=campaign.organization_id, assessor_id=user.user_id, updated_at=datetime.now(timezone.utc), **payload.model_dump())
+    assessment_response_store[response.id] = response
+    record_event(user, "assessment.response_updated", "assessment_response", response.id)
+    return response
+
+
+@app.get("/v1/assessments/{assessment_id}/score")
+def assessment_score(assessment_id: UUID, user: Annotated[UserContext, Depends(user_context)]):
+    tenant_assessment(assessment_id, user)
+    responses = [item for item in assessment_response_store.values() if item.assessment_id == assessment_id]
+    assessed = [item for item in responses if item.status not in {"not_assessed", "not_applicable"}]
+    applicable = [item for item in responses if item.status != "not_applicable"]
+    denominator = sum(item.weight for item in assessed)
+    earned = sum(item.weight * ({"compliant": 1, "partially_compliant": .5, "non_compliant": 0}.get(item.status, 0)) for item in assessed)
+    mandatory_failures = sum(item.mandatory and item.status == "non_compliant" for item in assessed)
+    raw = round(earned / denominator * 100, 1) if denominator else None
+    penalty = min(mandatory_failures * 5, 25)
+    readiness = max(0, raw - penalty) if raw is not None else None
+    completeness = round(len(assessed) / len(applicable) * 100, 1) if applicable else 0
+    return {"readiness": readiness, "raw_score": raw, "mandatory_control_penalty": penalty,
+        "assessment_completeness": completeness, "assessed_controls": len(assessed),
+        "applicable_controls": len(applicable), "not_applicable": len(responses) - len(applicable),
+        "methodology": "weighted-status-v1", "explanation": "Not assessed controls affect completeness, not readiness; N/A controls are excluded; mandatory failures subtract 5 points each (maximum 25)."}
+
+
 @app.get("/v1/dashboard", response_model=DashboardSummary)
 def dashboard(user: Annotated[UserContext, Depends(user_context)]):
     tenant_actions = [item for item in action_store.values() if item.organization_id == user.organization_id]
@@ -361,9 +533,78 @@ def list_actions(user: Annotated[UserContext, Depends(user_context)]):
     return [item for item in action_store.values() if item.organization_id == user.organization_id]
 
 
+@app.get("/v1/gaps", response_model=list[Gap])
+def list_gaps(user: Annotated[UserContext, Depends(user_context)], overdue: bool = False):
+    items = [item for item in gap_store.values() if item.organization_id == user.organization_id]
+    if overdue:
+        items = [item for item in items if item.due_date and item.due_date < date.today() and item.status not in {"closed", "accepted_risk"}]
+    return items
+
+
+@app.post("/v1/gaps", response_model=Gap, status_code=201)
+def create_gap(payload: GapCreate,
+    user: Annotated[UserContext, Depends(require_roles(Role.ORG_ADMIN, Role.COMPLIANCE_MANAGER, Role.ASSESSOR))]):
+    assert_tenant(payload.organization_id, user)
+    if payload.assessment_id:
+        tenant_assessment(payload.assessment_id, user)
+    item = Gap(id=uuid4(), created_at=datetime.now(timezone.utc), **payload.model_dump())
+    gap_store[item.id] = item
+    record_event(user, "gap.created", "gap", item.id)
+    return item
+
+
+@app.patch("/v1/gaps/{gap_id}", response_model=Gap)
+def update_gap(gap_id: UUID, payload: GapStatusUpdate,
+    user: Annotated[UserContext, Depends(require_roles(Role.ORG_ADMIN, Role.COMPLIANCE_MANAGER, Role.ASSESSOR))]):
+    item = gap_store.get(gap_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Resource not found")
+    assert_tenant(item.organization_id, user)
+    updated = item.model_copy(update={"status": payload.status})
+    gap_store[gap_id] = updated
+    record_event(user, "gap.status_updated", "gap", gap_id)
+    return updated
+
+
+@app.get("/v1/control-mappings", response_model=list[ControlMapping])
+def list_control_mappings(user: Annotated[UserContext, Depends(user_context)]):
+    return [item for item in mapping_store.values() if item.organization_id == user.organization_id]
+
+
+@app.post("/v1/control-mappings", response_model=ControlMapping, status_code=201)
+def create_control_mapping(payload: ControlMappingCreate,
+    user: Annotated[UserContext, Depends(require_roles(Role.ORG_ADMIN, Role.COMPLIANCE_MANAGER))]):
+    assert_tenant(payload.organization_id, user)
+    approved = payload.confidence in {"authoritative", "expert_reviewed"}
+    item = ControlMapping(id=uuid4(), reviewer_id=user.user_id if approved else None, approved=approved, **payload.model_dump())
+    mapping_store[item.id] = item
+    record_event(user, "control_mapping.created", "control_mapping", item.id)
+    return item
+
+
+@app.get("/v1/evidence/{evidence_id}/coverage")
+def evidence_coverage(evidence_id: UUID, user: Annotated[UserContext, Depends(user_context)]):
+    evidence = evidence_store.get(evidence_id)
+    if not evidence:
+        raise HTTPException(status_code=404, detail="Resource not found")
+    assert_tenant(evidence.organization_id, user)
+    mappings = [item for item in mapping_store.values() if item.organization_id == user.organization_id
+        and item.approved and item.canonical_control_code in evidence.universal_control_ids]
+    controls = sorted({code for item in mappings for code in item.framework_control_codes})
+    frameworks = sorted({code.split("-")[0] for code in controls})
+    return {"evidence_id": evidence_id, "supported_requirements": controls,
+        "requirements_count": len(controls), "frameworks": frameworks, "frameworks_count": len(frameworks),
+        "authoritative": all(item.confidence == "authoritative" for item in mappings) if mappings else False}
+
+
 @app.post("/v1/actions", response_model=CorrectiveAction, status_code=201)
 def create_action(payload: ActionCreate, user: Annotated[UserContext, Depends(require_roles(Role.ORG_ADMIN, Role.COMPLIANCE_MANAGER, Role.ASSESSOR))]):
     assert_tenant(payload.organization_id, user)
+    if payload.gap_id:
+        gap = gap_store.get(payload.gap_id)
+        if not gap:
+            raise HTTPException(status_code=404, detail="Resource not found")
+        assert_tenant(gap.organization_id, user)
     item = CorrectiveAction(id=uuid4(), status="open", **payload.model_dump())
     action_store[item.id] = item
     record_event(user, "action.created", "corrective_action", item.id)

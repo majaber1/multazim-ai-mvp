@@ -1,6 +1,6 @@
 # ملتزم | Multazim
 
-Saudi Compliance, Governance & Measurement Platform — منصة الامتثال والحوكمة والقياس السعودية
+Saudi Compliance Intelligence & Readiness Platform — منصة ذكية موحدة لقياس وإدارة الامتثال والجاهزية التنظيمية في المملكة العربية السعودية
 
 Multazim is a bilingual foundation for determining which Saudi regulatory frameworks likely apply to an organization, measuring readiness, reusing evidence across mapped controls, tracking gaps and actions, and preparing for audits. It does not claim complete Saudi regulatory coverage and does not present internal scores as regulator-issued results.
 
@@ -14,6 +14,9 @@ Multazim is a bilingual foundation for determining which Saudi regulatory framew
 - Official-source register and explicit pending-verification states.
 - Business-facing regulatory journeys with sourced requirement classifications and readiness scoring.
 - Fictional bilingual demo organization and clearly labeled estimated scores.
+- Persisted tenant-scoped assessment campaigns/responses, gaps, remediation links, applicability overrides, and audit events.
+- Human-reviewed canonical-control mappings with explainable cross-framework evidence coverage.
+- Transparent scoring methodology that separates readiness, completeness, N/A controls, and mandatory-control penalties.
 
 See [implementation status](docs/IMPLEMENTATION_STATUS.md) for exact limitations.
 The current evidence-backed architecture and module gap analysis is maintained in

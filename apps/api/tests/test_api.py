@@ -170,3 +170,54 @@ def test_transportation_journey_is_sourced_classified_and_scores_readiness():
 
     invalid = client.post("/v1/journeys/TGA-TAXI-APP-MEDIATION/readiness", json={"completed_requirement_codes": ["UNKNOWN"]})
     assert invalid.status_code == 422
+
+
+def test_assessment_campaign_response_and_transparent_score_are_tenant_scoped():
+    org_id, other_org = uuid4(), uuid4()
+    created = client.post("/v1/assessments", headers=headers(org_id), json={
+        "organization_id": str(org_id), "framework_code": "NCA-ECC-2-2024", "framework_version": "2-2024",
+        "title": "Quarterly readiness", "scope": "Technology department", "assessor_ids": ["assessor-1"]
+    })
+    assert created.status_code == 201
+    assessment_id = created.json()["id"]
+    response = client.put(f"/v1/assessments/{assessment_id}/responses/NCA-1", headers=headers(org_id), json={
+        "control_code": "NCA-1", "status": "non_compliant", "mandatory": True, "weight": 2,
+        "rationale": "Required process is not operating", "review_state": "submitted"
+    })
+    assert response.status_code == 200
+    client.put(f"/v1/assessments/{assessment_id}/responses/NCA-2", headers=headers(org_id), json={
+        "control_code": "NCA-2", "status": "not_assessed", "weight": 1
+    })
+    score = client.get(f"/v1/assessments/{assessment_id}/score", headers=headers(org_id))
+    assert score.status_code == 200
+    assert score.json()["readiness"] == 0
+    assert score.json()["mandatory_control_penalty"] == 5
+    assert score.json()["assessment_completeness"] == 50
+    assert client.get(f"/v1/assessments/{assessment_id}/score", headers=headers(other_org)).status_code == 404
+
+
+def test_gap_mapping_coverage_and_applicability_override_workflow():
+    org_id = uuid4()
+    override = client.put(f"/v1/organizations/{org_id}/applicability/NCA-ECC/override", headers=headers(org_id), json={
+        "classification": "NEEDS_REVIEW", "justification": "Legal counsel must confirm the entity mandate."
+    })
+    assert override.status_code == 200 and override.json()["actor_id"] == "test-user"
+    gap = client.post("/v1/gaps", headers=headers(org_id), json={
+        "organization_id": str(org_id), "framework_code": "NCA-ECC", "control_code": "NCA-1",
+        "finding": "Access reviews are not evidenced", "severity": "high", "owner": "Security team",
+        "due_date": "2026-01-01", "remediation_plan": "Complete and approve the quarterly review"
+    })
+    assert gap.status_code == 201
+    assert client.get("/v1/gaps", headers=headers(org_id), params={"overdue": True}).json()
+    evidence = client.post("/v1/evidence", headers=headers(org_id), json={
+        "organization_id": str(org_id), "title": "Access review", "universal_control_ids": ["UC-IAM-001"]
+    }).json()
+    mapping = client.post("/v1/control-mappings", headers=headers(org_id), json={
+        "organization_id": str(org_id), "canonical_control_code": "UC-IAM-001",
+        "framework_control_codes": ["NCA-1", "ISO-A.5.18", "DGA-7.2"], "mapping_type": "supports",
+        "confidence": "expert_reviewed", "source": "Human-reviewed mapping record", "version": "1"
+    })
+    assert mapping.status_code == 201 and mapping.json()["approved"] is True
+    coverage = client.get(f"/v1/evidence/{evidence['id']}/coverage", headers=headers(org_id))
+    assert coverage.status_code == 200 and coverage.json()["requirements_count"] == 3
+    assert client.get(f"/v1/evidence/{evidence['id']}/coverage", headers=headers(uuid4())).status_code == 404

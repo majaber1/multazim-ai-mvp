@@ -1,7 +1,9 @@
 {
   "name": "multazim-ai",
   "private": true,
-  "workspaces": ["apps/web"],
+  "workspaces": [
+    "apps/web"
+  ],
   "scripts": {
     "dev": "npm --workspace apps/web run dev",
     "build": "npm --workspace apps/web run build",

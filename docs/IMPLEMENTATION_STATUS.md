@@ -8,11 +8,11 @@ Status is intentionally conservative.
 | Applicability engine | IMPLEMENTED & TESTED | Profile save + recalculation for initial DGA/PDPL/NCA/SAMA/ISO rules |
 | Versioned regulatory data model | IMPLEMENTED & TESTED | Durable zero-config SQLite workflow repository plus PostgreSQL 16 schema for multi-instance deployments |
 | Catalog files and validator | IMPLEMENTED & TESTED | Five starter records; detailed control imports pending |
-| Universal control/evidence reuse model | IMPLEMENTED NOT FULLY TESTED | Schema, UI and tenant-aware API create/list/read metadata path; binary storage pending |
+| Universal control/evidence reuse model | IMPLEMENTED & TESTED | Human-reviewed/authoritative mappings can contribute to tenant-scoped evidence coverage; AI/unverified mappings remain unapproved |
 | RBAC | IMPLEMENTED NOT FULLY TESTED | Role enforcement plus configurable OIDC/JWKS bearer validation; external identity tenant still requires provisioning |
 | Tenant isolation | IMPLEMENTED & TESTED | API IDOR test plus PostgreSQL RLS policy definitions |
-| Assessment scoring | IMPLEMENTED NOT FULLY TESTED | Weighted strategies for initial DGA/PDPL/NCA/ISO answer domains plus equal-weight fallback |
-| Gap/action workflow | IMPLEMENTED & TESTED | Tenant-scoped list/create/status API backed by durable SQLite in the single-server edition |
+| Assessment campaigns and scoring | IMPLEMENTED & TESTED | Persisted campaigns/responses plus weighted-status-v1 readiness, completeness, N/A exclusion, and explicit mandatory-control penalty |
+| Gap/action workflow | IMPLEMENTED & TESTED | Tenant-scoped persisted gap lifecycle, overdue filter, linked action/dependency/completion-evidence fields, and audit events |
 | Audit room | IMPLEMENTED NOT FULLY TESTED | Read-only UI plus tenant-scoped JSON audit package; signed archive/PDF export pending |
 | AI evidence analysis | SCAFFOLDED | Provider-neutral endpoint enforces human approval; document/model provider pending |
 | Evidence upload/storage/scanning | IMPLEMENTED & TESTED | Durable local object store, size/type limits, SHA-256 integrity, EICAR/executable rejection; deep ClamAV and hosted object storage remain optional production upgrades |
