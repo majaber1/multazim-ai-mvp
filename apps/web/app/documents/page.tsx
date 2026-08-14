@@ -1,81 +1,19 @@
 'use client';
-
-import { useState } from 'react';
+import { useEffect,useState } from 'react';
 import { AppShell } from '@/components/AppShell';
-import { browserApiUrl, DEMO_ORGANIZATION_ID, demoHeaders } from '@/lib/api';
+import { browserApiUrl,DEMO_ORGANIZATION_ID,demoHeaders } from '@/lib/api';
 import { StatusChip } from '@/components/StatusChip';
 import { useLocale } from '@/components/LocaleProvider';
 
-const types = [
-  ['privacy', 'سياسة الخصوصية', 'Privacy policy'],
-  ['information_security', 'سياسة أمن المعلومات', 'Information security policy'],
-  ['access_control', 'سياسة التحكم بالوصول', 'Access control policy'],
-  ['business_continuity', 'سياسة استمرارية الأعمال', 'Business continuity policy'],
-  ['vendor_management', 'سياسة إدارة الموردين', 'Vendor management policy'],
-  ['ai_governance', 'سياسة حوكمة الذكاء الاصطناعي', 'AI governance policy'],
-] as const;
+type Policy={id:string;title_ar:string;title_en:string;document_type:string;owner:string;reviewer?:string;approver?:string;version:string;status:string;next_review_date?:string;ai_assisted:boolean};
+const types=[['policy','سياسة','Policy'],['procedure','إجراء','Procedure'],['standard','معيار','Standard'],['guideline','دليل إرشادي','Guideline'],['template','قالب','Template']] as const;
+const transitions:Record<string,string[]>={draft:['under_review','archived'],under_review:['draft','approved'],approved:['published','draft'],published:['superseded','archived'],superseded:['archived'],archived:[]};
+async function request(path:string,init?:RequestInit){const response=await fetch(`${browserApiUrl()}${path}`,{...init,headers:{...demoHeaders,...init?.headers}});if(!response.ok)throw new Error((await response.json().catch(()=>null))?.detail??`Request failed (${response.status})`);return response}
 
-const reportFormats = [
-  ['pdf', 'PDF', 'application/pdf'],
-  ['xlsx', 'Excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
-  ['csv', 'CSV', 'text/csv'],
-] as const;
-
-export default function Documents() {
-  const { locale } = useLocale();
-  const [type, setType] = useState('privacy');
-  const [draft, setDraft] = useState<{ title_ar: string; notice_ar: string; sections: string[] } | null>(null);
-  const [saving, setSaving] = useState(false);
-  const ar = locale === 'ar';
-
-  async function generate() {
-    setSaving(true);
-    try {
-      const response = await fetch(`${browserApiUrl()}/v1/policies/draft`, {
-        method: 'POST', headers: demoHeaders,
-        body: JSON.stringify({ organization_id: DEMO_ORGANIZATION_ID, policy_type: type }),
-      });
-      if (!response.ok) throw new Error('Policy draft request failed');
-      setDraft(await response.json());
-    } finally { setSaving(false); }
-  }
-
-  async function download(format: string) {
-    const response = await fetch(`${browserApiUrl()}/v1/reports/executive.${format}`, { headers: demoHeaders });
-    if (!response.ok) throw new Error('Report download failed');
-    const url = URL.createObjectURL(await response.blob());
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = `multazim-executive-report.${format}`;
-    anchor.click();
-    URL.revokeObjectURL(url);
-  }
-
-  return <AppShell title={ar ? 'السياسات والتقارير' : 'Policies & Reports'}>
-    <div className="grid gap-5 lg:grid-cols-2">
-      <section className="card p-6">
-        <StatusChip tone="amber">{ar ? 'مسودة تتطلب اعتمادًا' : 'Draft requires approval'}</StatusChip>
-        <h2 className="mt-4 text-xl font-black">{ar ? 'مولد مسودات السياسات' : 'Policy draft generator'}</h2>
-        <p className="mt-2 text-sm leading-6 text-slate-500">{ar ? 'ينشئ هيكلًا أوليًا فقط، ولا يحل محل المراجعة القانونية والأمنية.' : 'Creates a structured first draft; legal and security review remain required.'}</p>
-        <label className="mt-5 block text-sm font-bold">{ar ? 'نوع السياسة' : 'Policy type'}
-          <select value={type} onChange={event => setType(event.target.value)} className="mt-2 w-full rounded-xl border p-3 font-normal">
-            {types.map(([value, arabic, english]) => <option key={value} value={value}>{ar ? arabic : english}</option>)}
-          </select>
-        </label>
-        <button onClick={generate} disabled={saving} className="mt-4 w-full rounded-xl bg-emerald-700 px-5 py-3 font-black text-white disabled:opacity-60">
-          {saving ? (ar ? 'جارٍ الإنشاء...' : 'Generating...') : (ar ? 'إنشاء المسودة' : 'Generate draft')}
-        </button>
-        {draft ? <div className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50 p-4"><h3 className="font-black">{draft.title_ar}</h3><p className="mt-2 text-xs leading-5 text-emerald-900">{draft.notice_ar}</p><ol className="mt-3 list-inside list-decimal space-y-1 text-sm">{draft.sections.map(section => <li key={section}>{section}</li>)}</ol></div> : null}
-      </section>
-      <section className="card p-6">
-        <StatusChip tone="blue">{ar ? 'تقارير قابلة للتدقيق' : 'Audit-ready exports'}</StatusChip>
-        <h2 className="mt-4 text-xl font-black">{ar ? 'التقرير التنفيذي' : 'Executive report'}</h2>
-        <p className="mt-2 text-sm leading-6 text-slate-500">{ar ? 'تنزيل تقرير PDF للإدارة أو مصنف Excel للتحليل أو CSV للأنظمة.' : 'Download a management PDF, analysis-ready Excel workbook, or machine-readable CSV.'}</p>
-        <div className="mt-5 grid gap-3 sm:grid-cols-3">
-          {reportFormats.map(([format, label]) => <button key={format} onClick={() => download(format)} className="rounded-xl border border-emerald-700 px-4 py-3 text-center font-black text-emerald-800 hover:bg-emerald-50">{label}</button>)}
-        </div>
-        <p className="mt-4 text-xs leading-5 text-slate-500">{ar ? 'تتضمن التقارير نسخة الإطار والدرجات التقديرية والقيود، ولا تمثل شهادة أو نتيجة رسمية.' : 'Reports include framework versions, estimated scores, and limitations; they are not certifications or official regulator results.'}</p>
-      </section>
-    </div>
-  </AppShell>;
-}
+export default function Documents(){const {locale,tr}=useLocale();const ar=locale==='ar';const [items,setItems]=useState<Policy[]>([]);const [state,setState]=useState<'loading'|'idle'|'saving'|'error'>('loading');const [message,setMessage]=useState('');const [form,setForm]=useState({title_ar:'سياسة إدارة الأدلة',title_en:'Evidence Management Policy',document_type:'policy',owner:'Compliance Manager',reviewer:'Legal Reviewer',approver:'Organization Admin',version:'1.0',next_review_date:'2027-08-14'});
+useEffect(()=>{request('/v1/policies').then(r=>r.json()).then(setItems).then(()=>setState('idle')).catch(e=>{setMessage(e.message);setState('error')})},[]);
+async function create(ai=false){setState('saving');try{if(ai){await request('/v1/policies/draft',{method:'POST',body:JSON.stringify({organization_id:DEMO_ORGANIZATION_ID,policy_type:'privacy'})})}else{await request('/v1/policies',{method:'POST',body:JSON.stringify({organization_id:DEMO_ORGANIZATION_ID,...form,effective_date:null,mapped_frameworks:[],mapped_controls:[],attachment_ids:[],ai_assisted:false})})}setItems(await request('/v1/policies').then(r=>r.json()));setMessage(tr('تم حفظ المستند.','Document saved.'));setState('idle')}catch(e){setMessage(e instanceof Error?e.message:String(e));setState('error')}}
+async function transition(item:Policy,status:string){setState('saving');try{const updated=await request(`/v1/policies/${item.id}/transition`,{method:'PATCH',body:JSON.stringify({status,comment:'Reviewed in document workspace'})}).then(r=>r.json());setItems(current=>current.map(row=>row.id===updated.id?updated:row));setMessage(tr('تم تحديث دورة حياة المستند.','Document lifecycle updated.'));setState('idle')}catch(e){setMessage(e instanceof Error?e.message:String(e));setState('error')}}
+async function download(format:string){try{const response=await request(`/v1/reports/executive.${format}${format==='pdf'?`?locale=${locale}`:''}`);const url=URL.createObjectURL(await response.blob());const anchor=document.createElement('a');anchor.href=url;anchor.download=`multazim-executive-${locale}.${format}`;anchor.click();URL.revokeObjectURL(url)}catch(e){setMessage(e instanceof Error?e.message:String(e));setState('error')}}
+return <AppShell title={tr('السياسات والوثائق','Policies & Documents')}><div className="space-y-5"><section className="card p-6"><div className="flex flex-wrap items-start justify-between gap-3"><div><StatusChip tone="blue">{tr('دورة حياة محكومة','Controlled lifecycle')}</StatusChip><h2 className="mt-3 text-xl font-black">{tr('إنشاء مستند','Create document')}</h2></div><button onClick={()=>create(true)} className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-black text-amber-900">{tr('إنشاء مسودة بمساعدة الذكاء الاصطناعي','Create AI-assisted draft')}</button></div><p className="mt-3 text-xs font-bold text-amber-800">AI-assisted draft — requires human review and approval</p><div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4"><label className="text-sm font-bold">{tr('العنوان العربي','Arabic title')}<input value={form.title_ar} onChange={e=>setForm({...form,title_ar:e.target.value})} className="mt-2 w-full rounded-xl border p-3 font-normal"/></label><label className="text-sm font-bold">{tr('العنوان الإنجليزي','English title')}<input dir="ltr" value={form.title_en} onChange={e=>setForm({...form,title_en:e.target.value})} className="mt-2 w-full rounded-xl border p-3 font-normal"/></label><label className="text-sm font-bold">{tr('النوع','Type')}<select value={form.document_type} onChange={e=>setForm({...form,document_type:e.target.value})} className="mt-2 w-full rounded-xl border p-3 font-normal">{types.map(([v,a,en])=><option key={v} value={v}>{ar?a:en}</option>)}</select></label><label className="text-sm font-bold">{tr('الإصدار','Version')}<input dir="ltr" value={form.version} onChange={e=>setForm({...form,version:e.target.value})} className="mt-2 w-full rounded-xl border p-3 font-normal"/></label><label className="text-sm font-bold">{tr('المالك','Owner')}<input value={form.owner} onChange={e=>setForm({...form,owner:e.target.value})} className="mt-2 w-full rounded-xl border p-3 font-normal"/></label><label className="text-sm font-bold">{tr('المراجع','Reviewer')}<input value={form.reviewer} onChange={e=>setForm({...form,reviewer:e.target.value})} className="mt-2 w-full rounded-xl border p-3 font-normal"/></label><label className="text-sm font-bold">{tr('المعتمد','Approver')}<input value={form.approver} onChange={e=>setForm({...form,approver:e.target.value})} className="mt-2 w-full rounded-xl border p-3 font-normal"/></label><label className="text-sm font-bold">{tr('المراجعة القادمة','Next review')}<input type="date" value={form.next_review_date} onChange={e=>setForm({...form,next_review_date:e.target.value})} className="mt-2 w-full rounded-xl border p-3 font-normal"/></label></div><button onClick={()=>create(false)} disabled={state==='saving'||!form.title_ar||!form.title_en} className="mt-5 rounded-xl bg-emerald-700 px-5 py-3 font-black text-white disabled:opacity-50">{tr('حفظ كمسودة','Save as draft')}</button></section>
+<section className="card overflow-hidden"><div className="flex flex-wrap items-center justify-between gap-3 border-b p-5"><div><h2 className="text-xl font-black">{tr('سجل الوثائق','Document register')}</h2><p className="mt-1 text-sm text-slate-500">{tr('كل انتقال حالة مسجل في سجل التدقيق.','Every lifecycle transition is audit logged.')}</p></div><div className="flex gap-2">{['pdf','xlsx','csv'].map(format=><button key={format} onClick={()=>download(format)} className="rounded-xl border px-3 py-2 text-xs font-black uppercase">{format}</button>)}</div></div>{state==='loading'?<p className="p-6" role="status">{tr('جارٍ التحميل...','Loading...')}</p>:items.length===0?<p className="p-6 text-slate-500">{tr('لا توجد مستندات. أنشئ أول سياسة أو إجراء.','No documents yet. Create the first policy or procedure.')}</p>:<div className="grid gap-4 p-5 md:grid-cols-2 xl:grid-cols-3">{items.map(item=><article key={item.id} className="rounded-2xl border p-4"><div className="flex justify-between gap-2"><StatusChip tone={item.status==='published'?'emerald':item.status==='archived'?'slate':'amber'}>{item.status.replaceAll('_',' ')}</StatusChip><span className="text-xs" dir="ltr">v{item.version}</span></div><h3 className="mt-4 font-black">{ar?item.title_ar:item.title_en}</h3><p className="mt-1 text-xs text-slate-500">{item.document_type} · {item.owner}</p>{item.ai_assisted?<p className="mt-3 text-xs font-bold text-amber-800">AI-assisted draft — requires human review and approval</p>:null}<div className="mt-4 flex flex-wrap gap-2">{transitions[item.status].map(next=><button key={next} onClick={()=>transition(item,next)} className="rounded-lg border px-3 py-2 text-xs font-bold">{next.replaceAll('_',' ')}</button>)}</div></article>)}</div>}</section>{message?<p role={state==='error'?'alert':'status'} className={`rounded-xl p-3 text-sm ${state==='error'?'bg-red-50 text-red-800':'bg-emerald-50 text-emerald-800'}`}>{message}</p>:null}</div></AppShell>}

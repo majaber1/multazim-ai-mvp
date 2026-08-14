@@ -17,6 +17,9 @@ Multazim is a bilingual foundation for determining which Saudi regulatory framew
 - Persisted tenant-scoped assessment campaigns/responses, gaps, remediation links, applicability overrides, and audit events.
 - Human-reviewed canonical-control mappings with explainable cross-framework evidence coverage.
 - Transparent scoring methodology that separates readiness, completeness, N/A controls, and mandatory-control penalties.
+- PostgreSQL-primary service persistence when `DATABASE_URL` is configured, with SQLite retained only for lightweight local use.
+- Persisted notification/read state, compliance history snapshots, policy lifecycle, deterministic cited source retrieval, and SSRF-safe website indicators.
+- Playwright golden path for Arabic/English desktop/mobile and visually accepted Arabic/English PDF exports.
 
 See [implementation status](docs/IMPLEMENTATION_STATUS.md) for exact limitations.
 The current evidence-backed architecture and module gap analysis is maintained in
@@ -46,6 +49,17 @@ API docs: http://localhost:8000/docs
 
 The default local API uses durable SQLite at `.data/multazim.db`; no database account or
 separate database container is required. Uploaded evidence is stored under `.data/evidence`.
+
+## Production-like local stack
+
+```bash
+docker compose up -d --build
+docker compose up --wait
+```
+
+The stack starts PostgreSQL 16 + pgvector, applies the checksum-tracked schema migration, starts FastAPI with PostgreSQL persistence, then starts the standalone Next.js container. Health endpoints are `http://localhost:8000/health` and `http://localhost:3000/api/health`.
+
+Production requires `APP_ENV=production`, `OIDC_ISSUER`, `OIDC_AUDIENCE`, managed PostgreSQL credentials, and production storage credentials. Demo identity headers are rejected in production mode.
 This is the simplest reliable setup for one server. For multiple API replicas, enable the
 PostgreSQL profile or point `DATABASE_URL` at managed Neon/Supabase PostgreSQL.
 

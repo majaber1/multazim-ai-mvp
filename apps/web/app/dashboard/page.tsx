@@ -1,12 +1,11 @@
 import Link from 'next/link';
 import { AppShell } from '@/components/AppShell';
 import { StatusChip } from '@/components/StatusChip';
-import { getDashboard } from '@/lib/api';
+import { getComplianceHistory, getDashboard } from '@/lib/api';
 
 export const dynamic = 'force-dynamic';
 
 const statusAr: Record<string, string> = { open: 'مفتوح', planned: 'مخطط', in_progress: 'قيد التنفيذ', completed: 'مكتمل', blocked: 'متعثر' };
-const readinessHistory = [58, 61, 63, 66, 65, 69, 71, 73, 74, 76];
 const workstreams = [
   { label: 'الحوكمة والسياسات', value: 86, tone: 'bg-emerald-500' },
   { label: 'الأمن السيبراني', value: 78, tone: 'bg-cyan-500' },
@@ -33,19 +32,20 @@ function ExecutiveMetric({ label, value, detail, icon, accent }: { label: string
   return <article className="group relative overflow-hidden rounded-3xl border border-white/70 bg-white p-5 shadow-[0_18px_55px_-30px_rgba(15,23,42,.35)] transition hover:-translate-y-0.5 hover:shadow-[0_22px_60px_-28px_rgba(15,23,42,.42)]"><div className={`absolute inset-x-0 top-0 h-1 ${accent}`} /><div className="flex items-start justify-between gap-4"><div><p className="text-xs font-bold text-slate-500">{label}</p><p className="mt-3 text-3xl font-black tracking-tight text-slate-950">{value}</p></div><div className="rounded-2xl bg-slate-950 p-3 text-white"><Icon name={icon} /></div></div><p className="mt-3 text-xs leading-5 text-slate-500">{detail}</p></article>;
 }
 
-function Sparkline() {
-  const points = readinessHistory.map((value, index) => `${index * 30},${105 - value}`).join(' ');
-  return <svg role="img" aria-label="اتجاه درجة الامتثال خلال عشرة قياسات" viewBox="0 0 270 60" className="h-24 w-full overflow-visible"><defs><linearGradient id="trend-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#10b981" stopOpacity=".28"/><stop offset="1" stopColor="#10b981" stopOpacity="0"/></linearGradient></defs><path d={`M0 60 L${points.replaceAll(' ', ' L')} L270 60 Z`} fill="url(#trend-fill)"/><polyline points={points} fill="none" stroke="#059669" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>{readinessHistory.map((value,index)=><circle key={index} cx={index*30} cy={105-value} r={index===readinessHistory.length-1?4:2.4} fill={index===readinessHistory.length-1?'#064e3b':'#10b981'}/>)}</svg>;
+function Sparkline({values}:{values:number[]}) {
+  if(values.length<2)return <div className="my-5 rounded-xl border border-dashed border-white/20 p-4 text-xs text-slate-400">سجل تاريخي غير كافٍ - سيظهر الاتجاه بعد قياسين فعليين على الأقل.</div>;
+  const step=270/(values.length-1);const points=values.map((value,index)=>`${index*step},${100-value}`).join(' ');
+  return <svg role="img" aria-label="اتجاه درجة الامتثال من القياسات المحفوظة" viewBox="0 0 270 60" className="h-24 w-full overflow-visible"><defs><linearGradient id="trend-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#10b981" stopOpacity=".28"/><stop offset="1" stopColor="#10b981" stopOpacity="0"/></linearGradient></defs><path d={`M0 60 L${points.replaceAll(' ', ' L')} L270 60 Z`} fill="url(#trend-fill)"/><polyline points={points} fill="none" stroke="#059669" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>{values.map((value,index)=><circle key={index} cx={index*step} cy={100-value} r={index===values.length-1?4:2.4} fill={index===values.length-1?'#064e3b':'#10b981'}/>)}</svg>;
 }
 
 export default async function Dashboard() {
-  const { data, live } = await getDashboard();
+  const [{ data, live },history] = await Promise.all([getDashboard(),getComplianceHistory()]);
   const totalRisks = Object.values(data.risk_distribution).reduce((sum, value) => sum + value, 0);
   return <AppShell title="لوحة الامتثال التنفيذية">
     <section className="overflow-hidden rounded-[2rem] bg-slate-950 p-6 text-white shadow-[0_30px_80px_-35px_rgba(2,6,23,.75)] md:p-8">
       <div className="grid gap-8 lg:grid-cols-[1.35fr_.65fr] lg:items-end">
         <div><div className="flex flex-wrap items-center gap-2"><span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1 text-xs font-black text-emerald-300">مركز القيادة</span><StatusChip tone={live ? 'emerald' : 'amber'}>{live ? 'متصل مباشرة' : 'وضع العرض الاحتياطي'}</StatusChip></div><h2 className="mt-5 max-w-3xl text-3xl font-black leading-tight md:text-4xl">صورة واحدة لاتخاذ قرار امتثال أسرع وأكثر وضوحًا.</h2><p className="mt-3 max-w-2xl text-sm leading-7 text-slate-300">راقب الجاهزية، ركّز فرق العمل على أعلى المخاطر، وتتبع الأدلة المشتركة بين الأطر السعودية والدولية.</p><div className="mt-6 flex flex-wrap gap-3"><Link href="/gaps" className="rounded-xl bg-emerald-400 px-5 py-3 text-sm font-black text-slate-950 transition hover:bg-emerald-300">عرض خطة المعالجة</Link><Link href="/documents" className="rounded-xl border border-white/15 bg-white/5 px-5 py-3 text-sm font-black text-white hover:bg-white/10">تصدير التقرير التنفيذي</Link></div></div>
-        <div className="rounded-3xl border border-white/10 bg-white/[.06] p-5 backdrop-blur"><div className="flex items-end justify-between"><div><p className="text-xs text-slate-400">درجة ملتزم التقديرية</p><p className="mt-2 text-5xl font-black">{data.overall_score}<span className="text-xl text-emerald-300">%</span></p></div><span className="rounded-full bg-emerald-400/15 px-3 py-1 text-xs font-black text-emerald-300">+{data.trend}%</span></div><Sparkline/><div className="flex justify-between text-[10px] text-slate-500"><span>قبل 90 يومًا</span><span>اليوم</span></div></div>
+        <div className="rounded-3xl border border-white/10 bg-white/[.06] p-5 backdrop-blur"><div className="flex items-end justify-between"><div><p className="text-xs text-slate-400">درجة ملتزم التقديرية</p><p className="mt-2 text-5xl font-black">{data.overall_score}<span className="text-xl text-emerald-300">%</span></p></div><span className="rounded-full bg-emerald-400/15 px-3 py-1 text-xs font-black text-emerald-300">{history.length} قياسات</span></div><Sparkline values={history.map(item=>item.overall_readiness)}/><div className="flex justify-between text-[10px] text-slate-500"><span>{history[0]?.captured_at.slice(0,10)??'—'}</span><span>{history.at(-1)?.captured_at.slice(0,10)??'—'}</span></div></div>
       </div>
     </section>
 

@@ -3,15 +3,15 @@
 ## External blockers
 
 - Production OIDC tenant/issuer/audience credentials are not provisioned.
-- Hosted PostgreSQL, object storage, deep antivirus, outbound email/SMS, public deployment, and authoritative AI/RAG provider are not provisioned or live-verified.
+- Hosted PostgreSQL, object storage, deep antivirus, outbound email/SMS, public deployment, and paid AI providers are not provisioned. Local PostgreSQL is verified; deterministic retrieval works without paid AI.
 - Official/licensed detailed Saudi control text requires regulator-source review and content approval. Metadata-only/demo records remain labeled by verification status.
-- Arabic PDF uses a safe report export but needs visual acceptance testing with an approved Arabic font in the target deployment.
+- Final production fonts/rendering still require deployment acceptance, although local and container DejaVu Arabic generation was rendered and visually accepted.
 
 ## Product limits
 
-- The zero-configuration edition uses SQLite; the PostgreSQL schema/RLS has not been exercised against a live production database in this run.
-- Browser E2E across Arabic/English, mobile, upload, and report download is not yet automated in CI.
-- Policy drafting is a guarded draft workflow, not a complete approval/version UI.
-- AI analysis is deterministic/provider-neutral and never authoritative; retrieval against an approved source library awaits provider provisioning.
+- SQLite remains only a lightweight fallback. Local PostgreSQL bootstrap, repeat migration, RLS, constraints, transactions, and process-restart persistence are verified.
+- The complete browser suite runs four locale/device projects; CI runs the English desktop critical subset.
+- AI analysis remains non-authoritative by design. Deterministic approved-source retrieval returns citations without provider credentials.
+- The final corrected web-container entrypoint rebuild could not be rerun because the execution approval stream disconnected; run `docker compose build web && docker compose up -d web && docker compose up --wait web`.
 
 These limitations prevent a production-ready or certification-ready claim, but do not break the bounded fictional accelerator demo.

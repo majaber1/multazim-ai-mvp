@@ -7,6 +7,9 @@ import hashlib
 import io
 import json
 import os
+import ipaddress
+import re
+import socket
 from pathlib import Path
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
@@ -14,6 +17,7 @@ from uuid import UUID, uuid4
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 import jwt
+import httpx
 from jwt import PyJWKClient
 from pydantic import BaseModel, Field, HttpUrl
 from openpyxl import Workbook
@@ -21,8 +25,12 @@ from openpyxl.styles import Font, PatternFill
 from reportlab.lib.colors import HexColor
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen.canvas import Canvas
-from app.object_storage import put_object, scan_upload
-from app.persistence import SQLiteEventStore, SQLiteModelStore, storage_health
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+import arabic_reshaper
+from bidi.algorithm import get_display
+from app.object_storage import put_object, scan_upload, validate_content_type
+from app.persistence import EventStore, model_store, storage_health
 
 
 class Role(StrEnum):
@@ -89,12 +97,21 @@ class EvidenceCreate(BaseModel):
 
 class Evidence(EvidenceCreate):
     id: UUID
-    state: Literal["uploaded", "under_review", "accepted", "rejected"]
+    state: Literal["uploaded", "under_review", "accepted", "rejected", "superseded", "archived"]
     sha256: str | None = None
     filename: str | None = None
     content_type: str | None = None
     size_bytes: int | None = None
-    scan_status: Literal["not_applicable", "pending", "clean", "rejected"] = "not_applicable"
+    scan_status: Literal["not_applicable", "pending", "clean", "rejected", "failed", "unavailable"] = "not_applicable"
+    effective_date: date | None = None
+    expiry_date: date | None = None
+    version: str = "1.0"
+    replaces_evidence_id: UUID | None = None
+
+
+class EvidenceLifecycleUpdate(BaseModel):
+    state: Literal["under_review", "accepted", "rejected", "superseded", "archived"]
+    expiry_date: date | None = None
 
 
 class ActionCreate(BaseModel):
@@ -265,6 +282,90 @@ class ControlMapping(ControlMappingCreate):
     approved: bool = False
 
 
+class MappingReview(BaseModel):
+    decision: Literal["approved", "rejected", "under_review"]
+    rationale: str = Field(min_length=5, max_length=1000)
+
+
+class PolicyDocumentCreate(BaseModel):
+    organization_id: UUID
+    title_ar: str = Field(min_length=2, max_length=250)
+    title_en: str = Field(min_length=2, max_length=250)
+    document_type: Literal["policy", "procedure", "standard", "guideline", "template"]
+    owner: str = Field(min_length=2, max_length=120)
+    reviewer: str | None = None
+    approver: str | None = None
+    version: str = Field(min_length=1, max_length=40)
+    effective_date: date | None = None
+    next_review_date: date | None = None
+    mapped_frameworks: list[str] = Field(default_factory=list)
+    mapped_controls: list[str] = Field(default_factory=list)
+    attachment_ids: list[UUID] = Field(default_factory=list)
+    ai_assisted: bool = False
+
+
+class PolicyDocument(PolicyDocumentCreate):
+    id: UUID
+    status: Literal["draft", "under_review", "approved", "published", "superseded", "archived"] = "draft"
+    created_at: datetime
+    updated_at: datetime
+
+
+class PolicyTransition(BaseModel):
+    status: Literal["under_review", "approved", "published", "superseded", "archived", "draft"]
+    comment: str = Field(default="", max_length=1000)
+
+
+class Notification(BaseModel):
+    id: UUID
+    organization_id: UUID
+    recipient_id: str
+    notification_type: str
+    title_ar: str
+    title_en: str
+    resource_type: str
+    resource_id: str
+    resource_url: str
+    severity: Literal["info", "medium", "high", "critical"] = "info"
+    read_at: datetime | None = None
+    created_at: datetime
+
+
+class ComplianceSnapshot(BaseModel):
+    id: UUID
+    organization_id: UUID
+    overall_readiness: float
+    framework_readiness: dict[str, float] = Field(default_factory=dict)
+    domain_readiness: dict[str, float] = Field(default_factory=dict)
+    open_critical_gaps: int
+    overdue_actions: int
+    evidence_coverage: float
+    reason: str
+    captured_at: datetime
+
+
+class KnowledgeSourceCreate(BaseModel):
+    organization_id: UUID | None = None
+    title: str = Field(min_length=3, max_length=250)
+    source_url: HttpUrl
+    framework_code: str
+    framework_version: str
+    source_status: Literal["official", "verified", "under_review", "demo_unverified", "superseded"]
+    content: str = Field(min_length=20, max_length=100000)
+
+
+class KnowledgeSource(KnowledgeSourceCreate):
+    id: UUID
+    checksum: str
+    chunks: list[str]
+    ingested_at: datetime
+
+
+class AssistantQuery(BaseModel):
+    question: str = Field(min_length=3, max_length=1000)
+    framework_code: str | None = None
+
+
 APP_ENV = os.getenv("APP_ENV", "development").lower()
 IS_PRODUCTION = APP_ENV == "production"
 ALLOWED_ORIGINS = [origin.strip() for origin in os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",") if origin.strip()]
@@ -273,6 +374,21 @@ OIDC_AUDIENCE = os.getenv("OIDC_AUDIENCE", "")
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(10 * 1024 * 1024)))
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "/tmp/multazim-evidence" if IS_PRODUCTION else ".data/evidence"))
 ALLOWED_EVIDENCE_TYPES = {"application/pdf", "image/png", "image/jpeg", "text/csv", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
+
+
+def arabic_pdf_font() -> str:
+    candidates = [os.getenv("ARABIC_FONT_PATH", ""), "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "C:/Windows/Fonts/arial.ttf", "C:/Windows/Fonts/arabtype.ttf"]
+    for candidate in candidates:
+        if candidate and Path(candidate).is_file():
+            if "MultazimArabic" not in pdfmetrics.getRegisteredFontNames():
+                pdfmetrics.registerFont(TTFont("MultazimArabic", candidate))
+            return "MultazimArabic"
+    raise RuntimeError("No Arabic-capable PDF font found; configure ARABIC_FONT_PATH")
+
+
+def rtl(text: str) -> str:
+    return get_display(arabic_reshaper.reshape(text))
 
 app = FastAPI(
     title="Multazim Compliance Intelligence API",
@@ -287,8 +403,8 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "X-User-Id", "X-Organization-Id", "X-Role"],
 )
 
-organizations = SQLiteModelStore("organizations", Organization)
-evidence_store = SQLiteModelStore("evidence", Evidence)
+organizations = model_store("organizations", Organization)
+evidence_store = model_store("evidence", Evidence)
 DEMO_ORGANIZATION_ID = UUID("11111111-1111-4111-8111-111111111111")
 organizations[DEMO_ORGANIZATION_ID] = Organization(
     id=DEMO_ORGANIZATION_ID,
@@ -296,13 +412,17 @@ organizations[DEMO_ORGANIZATION_ID] = Organization(
     name_en="Saudi Digital Horizons Company",
     profile=OrganizationProfile(entity_type="government", sector="technology", handles_personal_data=True, uses_cloud=True),
 )
-action_store = SQLiteModelStore("actions", CorrectiveAction)
-audit_events = SQLiteEventStore(AuditEvent)
-assessment_store = SQLiteModelStore("assessment_campaigns", AssessmentCampaign)
-assessment_response_store = SQLiteModelStore("assessment_responses", AssessmentResponse)
-gap_store = SQLiteModelStore("gaps", Gap)
-mapping_store = SQLiteModelStore("control_mappings", ControlMapping)
-applicability_override_store = SQLiteModelStore("applicability_overrides", ApplicabilityOverrideRecord)
+action_store = model_store("actions", CorrectiveAction)
+audit_events = EventStore(AuditEvent)
+assessment_store = model_store("assessment_campaigns", AssessmentCampaign)
+assessment_response_store = model_store("assessment_responses", AssessmentResponse)
+gap_store = model_store("gaps", Gap)
+mapping_store = model_store("control_mappings", ControlMapping)
+applicability_override_store = model_store("applicability_overrides", ApplicabilityOverrideRecord)
+policy_store = model_store("policy_documents", PolicyDocument)
+notification_store = model_store("notifications", Notification)
+snapshot_store = model_store("compliance_snapshots", ComplianceSnapshot)
+knowledge_store = model_store("knowledge_sources", KnowledgeSource)
 for item in [
     CorrectiveAction(id=UUID("21111111-1111-4111-8111-111111111111"), organization_id=DEMO_ORGANIZATION_ID, title="اعتماد مراجعة الحسابات ذات الصلاحيات العالية", owner="نورة القحطاني", due_date=date(2026, 8, 12), priority="critical", impacted_frameworks=["NCA ECC", "ISO 27001", "SAMA CSF", "CST CRF"], status="open"),
     CorrectiveAction(id=UUID("21111111-1111-4111-8111-111111111112"), organization_id=DEMO_ORGANIZATION_ID, title="استكمال سجل أنشطة معالجة البيانات", owner="فريق الخصوصية", due_date=date(2026, 8, 17), priority="high", impacted_frameworks=["PDPL", "ISO 27701"], status="in_progress"),
@@ -360,6 +480,34 @@ def assert_tenant(resource_org_id: UUID, user: UserContext) -> None:
 def record_event(user: UserContext, action: str, resource_type: str, resource_id: UUID) -> None:
     audit_events.append(AuditEvent(organization_id=user.organization_id, actor_id=user.user_id, action=action,
         resource_type=resource_type, resource_id=str(resource_id), occurred_at=datetime.now(timezone.utc)))
+
+
+def notify(user: UserContext, notification_type: str, title_ar: str, title_en: str,
+    resource_type: str, resource_id: UUID, resource_url: str, severity: str = "info") -> Notification:
+    existing = next((item for item in notification_store.values() if item.organization_id == user.organization_id
+        and item.recipient_id == user.user_id and item.notification_type == notification_type
+        and item.resource_type == resource_type and item.resource_id == str(resource_id)), None)
+    item = Notification(id=existing.id if existing else uuid4(), organization_id=user.organization_id,
+        recipient_id=user.user_id, notification_type=notification_type, title_ar=title_ar, title_en=title_en,
+        resource_type=resource_type, resource_id=str(resource_id), resource_url=resource_url,
+        severity=severity, read_at=None, created_at=datetime.now(timezone.utc))
+    notification_store[item.id] = item
+    return item
+
+
+def capture_snapshot(user: UserContext, reason: str, readiness: float | None = None) -> ComplianceSnapshot:
+    tenant_gaps = [item for item in gap_store.values() if item.organization_id == user.organization_id]
+    tenant_actions = [item for item in action_store.values() if item.organization_id == user.organization_id]
+    tenant_evidence = [item for item in evidence_store.values() if item.organization_id == user.organization_id and item.state != "archived"]
+    accepted = sum(item.state == "accepted" for item in tenant_evidence)
+    item = ComplianceSnapshot(id=uuid4(), organization_id=user.organization_id,
+        overall_readiness=float(readiness if readiness is not None else 0), framework_readiness={}, domain_readiness={},
+        open_critical_gaps=sum(gap.severity == "critical" and gap.status not in {"closed", "accepted_risk"} for gap in tenant_gaps),
+        overdue_actions=sum(action.due_date < date.today() and action.status != "completed" for action in tenant_actions),
+        evidence_coverage=round(accepted / len(tenant_evidence) * 100, 1) if tenant_evidence else 0,
+        reason=reason, captured_at=datetime.now(timezone.utc))
+    snapshot_store[item.id] = item
+    return item
 
 
 def determine_applicability(profile: OrganizationProfile) -> list[ApplicabilityResult]:
@@ -470,6 +618,7 @@ def create_assessment(payload: AssessmentCampaignCreate,
     item = AssessmentCampaign(id=uuid4(), created_at=datetime.now(timezone.utc), **payload.model_dump())
     assessment_store[item.id] = item
     record_event(user, "assessment.created", "assessment", item.id)
+    notify(user, "assessment_assigned", "تم إسناد تقييم جديد", "New assessment assigned", "assessment", item.id, "/assessment", "medium")
     return item
 
 
@@ -505,6 +654,7 @@ def assessment_score(assessment_id: UUID, user: Annotated[UserContext, Depends(u
     penalty = min(mandatory_failures * 5, 25)
     readiness = max(0, raw - penalty) if raw is not None else None
     completeness = round(len(assessed) / len(applicable) * 100, 1) if applicable else 0
+    capture_snapshot(user, "assessment_recalculated", readiness)
     return {"readiness": readiness, "raw_score": raw, "mandatory_control_penalty": penalty,
         "assessment_completeness": completeness, "assessed_controls": len(assessed),
         "applicable_controls": len(applicable), "not_applicable": len(responses) - len(applicable),
@@ -550,6 +700,7 @@ def create_gap(payload: GapCreate,
     item = Gap(id=uuid4(), created_at=datetime.now(timezone.utc), **payload.model_dump())
     gap_store[item.id] = item
     record_event(user, "gap.created", "gap", item.id)
+    notify(user, "gap_assigned", "تم إسناد فجوة امتثال", "Compliance gap assigned", "gap", item.id, "/gaps", "info" if item.severity == "low" else item.severity)
     return item
 
 
@@ -563,6 +714,9 @@ def update_gap(gap_id: UUID, payload: GapStatusUpdate,
     updated = item.model_copy(update={"status": payload.status})
     gap_store[gap_id] = updated
     record_event(user, "gap.status_updated", "gap", gap_id)
+    notify(user, "gap_status_changed", "تغيرت حالة فجوة", "Gap status changed", "gap", gap_id, "/gaps", "info" if item.severity == "low" else item.severity)
+    if payload.status == "closed":
+        capture_snapshot(user, "gap_closed")
     return updated
 
 
@@ -580,6 +734,22 @@ def create_control_mapping(payload: ControlMappingCreate,
     mapping_store[item.id] = item
     record_event(user, "control_mapping.created", "control_mapping", item.id)
     return item
+
+
+@app.patch("/v1/control-mappings/{mapping_id}/review", response_model=ControlMapping)
+def review_control_mapping(mapping_id: UUID, payload: MappingReview,
+    user: Annotated[UserContext, Depends(require_roles(Role.ORG_ADMIN, Role.COMPLIANCE_MANAGER))]):
+    item = mapping_store.get(mapping_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Resource not found")
+    assert_tenant(item.organization_id, user)
+    approved = payload.decision == "approved"
+    if approved and item.confidence in {"ai_suggested", "unverified"} and not payload.rationale:
+        raise HTTPException(status_code=422, detail="Human review rationale is required")
+    updated = item.model_copy(update={"approved": approved, "reviewer_id": user.user_id})
+    mapping_store[mapping_id] = updated
+    record_event(user, f"control_mapping.{payload.decision}", "control_mapping", mapping_id)
+    return updated
 
 
 @app.get("/v1/evidence/{evidence_id}/coverage")
@@ -608,6 +778,7 @@ def create_action(payload: ActionCreate, user: Annotated[UserContext, Depends(re
     item = CorrectiveAction(id=uuid4(), status="open", **payload.model_dump())
     action_store[item.id] = item
     record_event(user, "action.created", "corrective_action", item.id)
+    notify(user, "action_due", "تم إسناد إجراء تصحيحي", "Corrective action assigned", "action", item.id, "/gaps", "high" if item.priority in {"critical", "high"} else "medium")
     return item
 
 
@@ -665,6 +836,8 @@ async def upload_evidence(
     content = await file.read(MAX_UPLOAD_BYTES + 1)
     if len(content) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="Evidence file exceeds upload limit")
+    if not validate_content_type(content, file.content_type):
+        raise HTTPException(status_code=415, detail="File content does not match its declared type")
     digest = hashlib.sha256(content).hexdigest()
     evidence_id = uuid4()
     clean, scan_reason = scan_upload(content)
@@ -695,6 +868,20 @@ def get_evidence(evidence_id: UUID, user: Annotated[UserContext, Depends(user_co
     return evidence
 
 
+@app.patch("/v1/evidence/{evidence_id}", response_model=Evidence)
+def update_evidence_lifecycle(evidence_id: UUID, payload: EvidenceLifecycleUpdate,
+    user: Annotated[UserContext, Depends(require_roles(Role.ORG_ADMIN, Role.COMPLIANCE_MANAGER, Role.ASSESSOR))]):
+    evidence = evidence_store.get(evidence_id)
+    if not evidence:
+        raise HTTPException(status_code=404, detail="Resource not found")
+    assert_tenant(evidence.organization_id, user)
+    updated = evidence.model_copy(update={"state": payload.state, "expiry_date": payload.expiry_date})
+    evidence_store[evidence_id] = updated
+    record_event(user, f"evidence.{payload.state}", "evidence", evidence_id)
+    capture_snapshot(user, "evidence_updated")
+    return updated
+
+
 @app.post("/v1/evidence/{evidence_id}/analysis", response_model=EvidenceAnalysis)
 def analyze_evidence(evidence_id: UUID, payload: EvidenceAnalysisRequest, user: Annotated[UserContext, Depends(require_roles(Role.ORG_ADMIN, Role.COMPLIANCE_MANAGER, Role.ASSESSOR))]):
     evidence = evidence_store.get(evidence_id)
@@ -718,13 +905,38 @@ def audit_log(user: Annotated[UserContext, Depends(require_roles(Role.ORG_ADMIN,
     return [event for event in audit_events if event.organization_id == user.organization_id]
 
 
-@app.get("/v1/notifications")
-def notifications(user: Annotated[UserContext, Depends(user_context)]):
+@app.get("/v1/notifications", response_model=list[Notification])
+def notifications(user: Annotated[UserContext, Depends(user_context)], unread_only: bool = False):
     today = date.today()
-    return [{"id": str(item.id), "severity": "critical" if item.due_date < today else item.priority,
-        "title": item.title, "type": "overdue_action" if item.due_date < today else "upcoming_action",
-        "date": item.due_date} for item in action_store.values()
-        if item.organization_id == user.organization_id and item.status != "completed" and (item.due_date - today).days <= 14]
+    for action in action_store.values():
+        if action.organization_id == user.organization_id and action.status != "completed" and (action.due_date - today).days <= 14:
+            overdue = action.due_date < today
+            notify(user, "action_overdue" if overdue else "action_due", "إجراء متأخر" if overdue else "إجراء مستحق قريبًا",
+                "Action overdue" if overdue else "Action due soon", "action", action.id, "/gaps",
+                "critical" if overdue else "high" if action.priority in {"critical", "high"} else "medium")
+    for evidence in evidence_store.values():
+        if evidence.organization_id == user.organization_id and evidence.expiry_date and 0 <= (evidence.expiry_date - today).days <= 30:
+            notify(user, "evidence_expiring", "دليل يقترب من الانتهاء", "Evidence expiring", "evidence", evidence.id, "/evidence", "high")
+    items = [item for item in notification_store.values() if item.organization_id == user.organization_id and item.recipient_id == user.user_id]
+    if unread_only:
+        items = [item for item in items if item.read_at is None]
+    return sorted(items, key=lambda item: item.created_at, reverse=True)
+
+
+@app.patch("/v1/notifications/{notification_id}/read", response_model=Notification)
+def mark_notification_read(notification_id: UUID, user: Annotated[UserContext, Depends(user_context)]):
+    item = notification_store.get(notification_id)
+    if not item or item.organization_id != user.organization_id or item.recipient_id != user.user_id:
+        raise HTTPException(status_code=404, detail="Resource not found")
+    updated = item.model_copy(update={"read_at": datetime.now(timezone.utc)})
+    notification_store[notification_id] = updated
+    return updated
+
+
+@app.get("/v1/compliance-history", response_model=list[ComplianceSnapshot])
+def compliance_history(user: Annotated[UserContext, Depends(user_context)]):
+    return sorted([item for item in snapshot_store.values() if item.organization_id == user.organization_id],
+        key=lambda item: item.captured_at)
 
 
 @app.get("/v1/audits/package.json")
@@ -742,10 +954,89 @@ def audit_package(user: Annotated[UserContext, Depends(require_roles(Role.ORG_AD
 def policy_draft(payload: PolicyDraftRequest, user: Annotated[UserContext, Depends(require_roles(Role.ORG_ADMIN, Role.COMPLIANCE_MANAGER))]):
     assert_tenant(payload.organization_id, user)
     policy_id = uuid4()
+    document = PolicyDocument(id=policy_id, organization_id=payload.organization_id,
+        title_ar="مسودة سياسة للاعتماد", title_en="Policy draft for approval", document_type="policy",
+        owner=user.user_id, version="0.1", ai_assisted=True, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+    policy_store[policy_id] = document
     record_event(user, "policy.draft_generated", "policy", policy_id)
     return {"id": policy_id, "policy_type": payload.policy_type, "status": "draft_requires_approval",
         "title_ar": "مسودة سياسة للاعتماد", "notice_ar": "مسودة إرشادية تتطلب مراجعة واعتماد الجهة والمستشار القانوني والأمني حسب الاختصاص.",
+        "notice_en": "AI-assisted draft — requires human review and approval",
         "sections": ["الغرض والنطاق", "الأدوار والمسؤوليات", "المتطلبات", "المراقبة والمراجعة", "إدارة الاستثناءات"]}
+
+
+@app.get("/v1/policies", response_model=list[PolicyDocument])
+def list_policies(user: Annotated[UserContext, Depends(user_context)]):
+    return [item for item in policy_store.values() if item.organization_id == user.organization_id]
+
+
+@app.post("/v1/policies", response_model=PolicyDocument, status_code=201)
+def create_policy(payload: PolicyDocumentCreate,
+    user: Annotated[UserContext, Depends(require_roles(Role.ORG_ADMIN, Role.COMPLIANCE_MANAGER))]):
+    assert_tenant(payload.organization_id, user)
+    now = datetime.now(timezone.utc)
+    item = PolicyDocument(id=uuid4(), created_at=now, updated_at=now, **payload.model_dump())
+    policy_store[item.id] = item
+    record_event(user, "policy.created", "policy", item.id)
+    return item
+
+
+@app.patch("/v1/policies/{policy_id}/transition", response_model=PolicyDocument)
+def transition_policy(policy_id: UUID, payload: PolicyTransition,
+    user: Annotated[UserContext, Depends(require_roles(Role.ORG_ADMIN, Role.COMPLIANCE_MANAGER))]):
+    item = policy_store.get(policy_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Resource not found")
+    assert_tenant(item.organization_id, user)
+    allowed = {"draft": {"under_review", "archived"}, "under_review": {"draft", "approved"},
+        "approved": {"published", "draft"}, "published": {"superseded", "archived"},
+        "superseded": {"archived"}, "archived": set()}
+    if payload.status not in allowed[item.status]:
+        raise HTTPException(status_code=409, detail=f"Invalid policy transition: {item.status} -> {payload.status}")
+    if item.ai_assisted and payload.status in {"approved", "published"} and not item.approver:
+        raise HTTPException(status_code=409, detail="AI-assisted policy requires a named human approver")
+    updated = item.model_copy(update={"status": payload.status, "updated_at": datetime.now(timezone.utc)})
+    policy_store[policy_id] = updated
+    record_event(user, f"policy.{payload.status}", "policy", policy_id)
+    return updated
+
+
+@app.post("/v1/knowledge-sources", response_model=KnowledgeSource, status_code=201)
+def ingest_knowledge_source(payload: KnowledgeSourceCreate,
+    user: Annotated[UserContext, Depends(require_roles(Role.ORG_ADMIN, Role.COMPLIANCE_MANAGER))]):
+    if payload.organization_id:
+        assert_tenant(payload.organization_id, user)
+    normalized = " ".join(payload.content.split())
+    chunk_size = 700
+    chunks = [normalized[index:index + chunk_size] for index in range(0, len(normalized), chunk_size)]
+    item = KnowledgeSource(id=uuid4(), checksum=hashlib.sha256(normalized.encode()).hexdigest(),
+        chunks=chunks, ingested_at=datetime.now(timezone.utc), **payload.model_dump())
+    knowledge_store[item.id] = item
+    record_event(user, "knowledge_source.ingested", "knowledge_source", item.id)
+    return item
+
+
+@app.post("/v1/assistant/query")
+def grounded_assistant(payload: AssistantQuery, user: Annotated[UserContext, Depends(user_context)]):
+    terms = {term.casefold() for term in payload.question.split() if len(term) > 2}
+    candidates = []
+    for source in knowledge_store.values():
+        if source.organization_id not in {None, user.organization_id} or source.source_status == "demo_unverified":
+            continue
+        if payload.framework_code and source.framework_code != payload.framework_code:
+            continue
+        for ordinal, chunk in enumerate(source.chunks):
+            score = sum(term in chunk.casefold() for term in terms)
+            if score:
+                candidates.append((score, source, ordinal, chunk))
+    candidates.sort(key=lambda row: row[0], reverse=True)
+    citations = [{"source_id": str(source.id), "title": source.title, "url": str(source.source_url),
+        "framework": source.framework_code, "version": source.framework_version, "chunk": ordinal,
+        "passage": chunk} for _, source, ordinal, chunk in candidates[:3]]
+    return {"mode": "deterministic_retrieval", "answer": "Relevant approved source passages are listed in citations. Human interpretation is required."
+        if citations else "No approved source passage matched the question; no compliance requirement was inferred.",
+        "citations": citations, "uncertainty": "This response is retrieval assistance, not a legal or regulatory conclusion.",
+        "prohibited_automatic_actions": ["mark_compliant", "approve_evidence", "approve_mapping", "close_gap", "approve_policy"]}
 
 
 @app.get("/v1/reports/executive.csv")
@@ -803,47 +1094,55 @@ def executive_report_xlsx(user: Annotated[UserContext, Depends(user_context)]):
 
 
 @app.get("/v1/reports/executive.pdf")
-def executive_report_pdf(user: Annotated[UserContext, Depends(user_context)]):
+def executive_report_pdf(user: Annotated[UserContext, Depends(user_context)], locale: Literal["ar", "en"] = "en"):
     summary = dashboard(user)
     output = io.BytesIO()
     pdf = Canvas(output, pagesize=A4)
     width, height = A4
     pdf.setFillColor(HexColor("#064e3b"))
     pdf.rect(0, height - 110, width, 110, fill=1, stroke=0)
+    arabic = locale == "ar"
+    body_font = arabic_pdf_font()
     pdf.setFillColor(HexColor("#ffffff"))
-    pdf.setFont("Helvetica-Bold", 20)
-    pdf.drawString(42, height - 55, "Multazim Executive Compliance Report")
-    pdf.setFont("Helvetica", 9)
-    pdf.drawString(42, height - 78, "Decision-support report — not a regulator score or certification")
+    pdf.setFont(body_font, 19)
+    title = rtl("تقرير ملتزم التنفيذي للامتثال") if arabic else "Multazim Executive Compliance Report"
+    (pdf.drawRightString if arabic else pdf.drawString)(width - 42 if arabic else 42, height - 55, title)
+    pdf.setFont(body_font, 8.5)
+    disclaimer = rtl("تقرير لدعم القرار - لا يمثل درجة أو شهادة صادرة من جهة تنظيمية") if arabic else "Decision-support report - not a regulator score or certification"
+    (pdf.drawRightString if arabic else pdf.drawString)(width - 42 if arabic else 42, height - 78, disclaimer)
     pdf.setFillColor(HexColor("#111827"))
-    pdf.setFont("Helvetica-Bold", 13)
-    pdf.drawString(42, height - 150, f"Overall estimated score: {summary.overall_score}%")
-    pdf.drawString(300, height - 150, f"Evidence readiness: {summary.evidence_readiness}%")
+    pdf.setFont(body_font, 12)
+    score_label = rtl(f"الجاهزية التقديرية: %{summary.overall_score}") if arabic else f"Overall estimated readiness: {summary.overall_score}%"
+    evidence_label = rtl(f"تغطية الأدلة: %{summary.evidence_readiness}") if arabic else f"Evidence coverage: {summary.evidence_readiness}%"
+    (pdf.drawRightString if arabic else pdf.drawString)(width - 42 if arabic else 42, height - 150, score_label)
+    (pdf.drawRightString if arabic else pdf.drawString)(width - 300 if arabic else 300, height - 150, evidence_label)
     y = height - 195
-    pdf.setFont("Helvetica-Bold", 11)
-    pdf.drawString(42, y, "Framework")
-    pdf.drawString(350, y, "Version")
-    pdf.drawString(450, y, "Score")
-    pdf.setFont("Helvetica", 10)
+    pdf.setFont(body_font, 10)
+    pdf.drawString(42, y, rtl("الإطار") if arabic else "Framework")
+    pdf.drawString(350, y, rtl("الإصدار") if arabic else "Version")
+    pdf.drawString(450, y, rtl("الدرجة") if arabic else "Score")
+    pdf.setFont(body_font, 9)
     for framework in summary.framework_scores:
         y -= 26
-        pdf.drawString(42, y, framework.name_en)
+        pdf.drawString(42, y, rtl(framework.name_ar) if arabic else framework.name_en)
         pdf.drawString(350, y, framework.version)
         pdf.drawString(450, y, f"{framework.score}%")
     y -= 42
-    pdf.setFont("Helvetica-Bold", 11)
-    pdf.drawString(42, y, "Priority corrective actions")
-    pdf.setFont("Helvetica", 9)
-    for action in summary.actions[:5]:
+    pdf.setFont(body_font, 10)
+    pdf.drawString(42, y, rtl("إجراءات المعالجة ذات الأولوية") if arabic else "Priority corrective actions")
+    pdf.setFont(body_font, 8.5)
+    for index, action in enumerate(summary.actions[:5]):
         y -= 22
-        pdf.drawString(42, y, action.title[:62])
+        action_title = rtl(action.title[:62]) if arabic else f"Corrective action {index + 1}"
+        pdf.drawString(42, y, action_title)
         pdf.drawRightString(width - 42, y, f"{action.priority} | {action.due_date.isoformat()}")
-    pdf.setFont("Helvetica", 8)
+    pdf.setFont(body_font, 7.5)
     pdf.setFillColor(HexColor("#6b7280"))
-    pdf.drawString(42, 38, f"Generated {datetime.now(timezone.utc).isoformat()} | Organization {user.organization_id}")
+    footer = f"{date.today().isoformat()} | {str(user.organization_id)[:8]} | weighted-status-v1"
+    pdf.drawString(42, 38, footer)
     pdf.save()
     return Response(content=output.getvalue(), media_type="application/pdf",
-        headers={"Content-Disposition": "attachment; filename=multazim-executive-report.pdf"})
+        headers={"Content-Disposition": f"attachment; filename=multazim-executive-report-{locale}.pdf"})
 
 
 @app.get("/v1/frameworks/catalog")
@@ -927,5 +1226,35 @@ def journey_readiness(journey_code: str, payload: JourneyReadinessRequest):
 
 
 @app.post("/v1/audits/website")
-def audit_website(payload: WebsiteAuditRequest):
-    return {"url": str(payload.url), "status": "demo", "notice": "Automated scanning is not connected in this release."}
+async def audit_website(payload: WebsiteAuditRequest):
+    target = str(payload.url)
+    host = payload.url.host
+    try:
+        addresses = {item[4][0] for item in socket.getaddrinfo(host, payload.url.port or 443)}
+    except socket.gaierror as exc:
+        raise HTTPException(status_code=422, detail="Website hostname could not be resolved") from exc
+    if any(ipaddress.ip_address(address).is_private or ipaddress.ip_address(address).is_loopback
+        or ipaddress.ip_address(address).is_link_local or ipaddress.ip_address(address).is_reserved for address in addresses):
+        raise HTTPException(status_code=422, detail="Private or reserved network targets are not allowed")
+    try:
+        async with httpx.AsyncClient(timeout=8, follow_redirects=True, max_redirects=5,
+            headers={"User-Agent": "Multazim-Technical-Indicator/1.0"}) as client:
+            response = await client.get(target)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=422, detail="Website could not be safely retrieved") from exc
+    content = response.text[:500_000] if "text/html" in response.headers.get("content-type", "") else ""
+    lowered = content.casefold()
+    links = re.findall(r'''href=["']([^"'#]+)''', content, re.IGNORECASE)[:50]
+    indicators = [
+        {"code": "https", "passed": response.url.scheme == "https", "detail": str(response.url)},
+        {"code": "hsts", "passed": bool(response.headers.get("strict-transport-security")), "detail": "Strict-Transport-Security header"},
+        {"code": "csp", "passed": bool(response.headers.get("content-security-policy")), "detail": "Content-Security-Policy header"},
+        {"code": "nosniff", "passed": response.headers.get("x-content-type-options", "").casefold() == "nosniff", "detail": "X-Content-Type-Options header"},
+        {"code": "privacy_page_signal", "passed": any(term in lowered for term in ("privacy", "الخصوصية", "حماية البيانات")), "detail": "Public privacy-language presence only"},
+        {"code": "cookie_notice_signal", "passed": any(term in lowered for term in ("cookie", "cookies", "ملفات تعريف الارتباط")), "detail": "Cookie-language presence only"},
+        {"code": "html_language", "passed": bool(re.search(r"<html[^>]+lang=", content, re.IGNORECASE)), "detail": "HTML lang attribute"},
+        {"code": "page_title", "passed": bool(re.search(r"<title>.+?</title>", content, re.IGNORECASE | re.DOTALL)), "detail": "Non-empty page title"},
+    ]
+    return {"url": target, "final_url": str(response.url), "http_status": response.status_code,
+        "classification": "TECHNICAL_INDICATORS_ONLY", "indicators": indicators,
+        "sampled_links": links[:20], "notice": "These automated technical indicators are not a regulatory compliance conclusion and do not establish PDPL compliance."}

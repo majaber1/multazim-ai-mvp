@@ -6,4 +6,6 @@ Applicability rules are structured expressions with outcome, priority, bilingual
 
 Canonical controls normalize reusable capabilities. Versioned mappings connect canonical controls to framework controls with mapping type, source, confidence, reviewer, and approval state. AI-suggested/unverified mappings remain unapproved; only approved mappings contribute to evidence coverage.
 
+Knowledge-source governance records official URL, framework/version, source status, checksum, review metadata, supersession, and chunks. Deterministic retrieval excludes `demo_unverified` sources from grounded answers. Catalog validation prevents missing provenance and preserves explicit verification classifications.
+
 Assessment scoring uses methodology `weighted-status-v1`: N/A is excluded, not-assessed affects completeness rather than readiness, partial compliance earns half weight, and mandatory failures apply an explicit capped penalty. The response explains every component.

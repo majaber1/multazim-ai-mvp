@@ -9,6 +9,7 @@ export const demoHeaders={
 };
 export type ActionItem={id:string;organization_id:string;title:string;owner:string;due_date:string;priority:'critical'|'high'|'medium'|'low';impacted_frameworks:string[];status:string};
 export type DashboardData={organization_id:string;overall_score:number;evidence_readiness:number;critical_gaps:number;applicable_frameworks:number;trend:number;framework_scores:{code:string;name_ar:string;name_en:string;score:number;version:string}[];actions:ActionItem[];risk_distribution:Record<string,number>;disclaimer_ar:string};
+export type ComplianceSnapshot={id:string;overall_readiness:number;evidence_coverage:number;open_critical_gaps:number;overdue_actions:number;reason:string;captured_at:string};
 
 export const fallbackDashboard:DashboardData={
   organization_id:DEMO_ORGANIZATION_ID,overall_score:76,evidence_readiness:68,critical_gaps:1,applicable_frameworks:4,trend:4.2,
@@ -26,4 +27,8 @@ export async function getDashboard():Promise<{data:DashboardData;live:boolean}>{
     if(!response.ok) throw new Error(`Dashboard API ${response.status}`);
     return {data:await response.json() as DashboardData,live:true};
   }catch{return {data:fallbackDashboard,live:false}}
+}
+
+export async function getComplianceHistory():Promise<ComplianceSnapshot[]>{
+  try{const base=process.env.API_INTERNAL_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';const response=await fetch(`${base}/v1/compliance-history`,{headers:demoHeaders,cache:'no-store'});if(!response.ok)throw new Error();return await response.json() as ComplianceSnapshot[]}catch{return []}
 }

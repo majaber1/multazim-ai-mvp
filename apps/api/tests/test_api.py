@@ -221,3 +221,76 @@ def test_gap_mapping_coverage_and_applicability_override_workflow():
     coverage = client.get(f"/v1/evidence/{evidence['id']}/coverage", headers=headers(org_id))
     assert coverage.status_code == 200 and coverage.json()["requirements_count"] == 3
     assert client.get(f"/v1/evidence/{evidence['id']}/coverage", headers=headers(uuid4())).status_code == 404
+
+
+def test_policy_lifecycle_notifications_history_and_grounded_retrieval():
+    org_id = uuid4()
+    auth = headers(org_id)
+    policy = client.post("/v1/policies", headers=auth, json={
+        "organization_id": str(org_id), "title_ar": "سياسة الأدلة", "title_en": "Evidence Policy",
+        "document_type": "policy", "owner": "Compliance", "reviewer": "Legal", "approver": "Admin",
+        "version": "1.0", "mapped_frameworks": ["NCA-ECC"], "mapped_controls": ["DEMO-EVD-01"]
+    })
+    assert policy.status_code == 201
+    policy_id = policy.json()["id"]
+    for state in ("under_review", "approved", "published", "superseded", "archived"):
+        response = client.patch(f"/v1/policies/{policy_id}/transition", headers=auth, json={"status": state, "comment": "Human review"})
+        assert response.status_code == 200
+    assert client.get("/v1/policies", headers=headers(uuid4())).json() == []
+
+    assessment = client.post("/v1/assessments", headers=auth, json={
+        "organization_id": str(org_id), "framework_code": "DEMO", "framework_version": "1",
+        "title": "Snapshot assessment", "scope": "Test scope", "assessor_ids": ["test-user"]
+    }).json()
+    client.put(f"/v1/assessments/{assessment['id']}/responses/DEMO-1", headers=auth, json={
+        "control_code": "DEMO-1", "status": "compliant", "rationale": "Test", "weight": 1
+    })
+    client.get(f"/v1/assessments/{assessment['id']}/score", headers=auth)
+    history = client.get("/v1/compliance-history", headers=auth)
+    assert history.status_code == 200 and history.json()[-1]["reason"] == "assessment_recalculated"
+    notifications = client.get("/v1/notifications", headers=auth).json()
+    assert notifications and notifications[0]["read_at"] is None
+    marked = client.patch(f"/v1/notifications/{notifications[0]['id']}/read", headers=auth)
+    assert marked.status_code == 200 and marked.json()["read_at"]
+
+    source = client.post("/v1/knowledge-sources", headers=auth, json={
+        "organization_id": str(org_id), "title": "Approved access guidance", "source_url": "https://example.com/official",
+        "framework_code": "DEMO", "framework_version": "1", "source_status": "verified",
+        "content": "Privileged access reviews should be documented and retained as approved evidence for the assessment."
+    })
+    assert source.status_code == 201 and source.json()["checksum"]
+    answer = client.post("/v1/assistant/query", headers=auth, json={"question": "How are privileged access reviews documented?", "framework_code": "DEMO"})
+    assert answer.status_code == 200 and answer.json()["citations"]
+    assert answer.json()["mode"] == "deterministic_retrieval"
+
+
+def test_evidence_content_sniffing_lifecycle_and_production_auth(monkeypatch, tmp_path):
+    from app import main
+    org_id = uuid4()
+    monkeypatch.setattr(main, "UPLOAD_DIR", tmp_path)
+    mismatch = client.post("/v1/evidence/upload", headers=headers(org_id), data={
+        "organization_id": str(org_id), "title": "Fake PDF", "universal_control_id": "UC-1"
+    }, files={"file": ("fake.pdf", b"not a pdf", "application/pdf")})
+    assert mismatch.status_code == 415
+    created = client.post("/v1/evidence", headers=headers(org_id), json={
+        "organization_id": str(org_id), "title": "Lifecycle evidence", "universal_control_ids": ["UC-1"]
+    }).json()
+    archived = client.patch(f"/v1/evidence/{created['id']}", headers=headers(org_id), json={"state": "archived"})
+    assert archived.status_code == 200 and archived.json()["state"] == "archived"
+    monkeypatch.setattr(main, "IS_PRODUCTION", True)
+    assert client.get("/v1/dashboard", headers=headers(org_id)).status_code == 401
+
+
+def test_arabic_and_english_pdf_exports():
+    from app.main import DEMO_ORGANIZATION_ID
+    auth = headers(DEMO_ORGANIZATION_ID)
+    for locale in ("ar", "en"):
+        report = client.get("/v1/reports/executive.pdf", headers=auth, params={"locale": locale})
+        assert report.status_code == 200 and report.content.startswith(b"%PDF")
+        assert f"-{locale}.pdf" in report.headers["content-disposition"]
+
+
+def test_website_checker_blocks_ssrf_targets():
+    response = client.post("/v1/audits/website", json={"url": "http://127.0.0.1:8000/private"})
+    assert response.status_code == 422
+    assert "Private or reserved" in response.json()["detail"]

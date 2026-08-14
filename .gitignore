@@ -9,3 +9,6 @@ __pycache__
 *.tsbuildinfo
 *.pyc
 .DS_Store
+apps/web/playwright-report/
+apps/web/test-results/
+tmp/

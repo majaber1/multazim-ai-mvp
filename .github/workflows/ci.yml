@@ -16,11 +16,13 @@ jobs:
       - run: npm run lint
       - run: npm run build
       - run: npm audit --audit-level=high
+      - run: npx playwright install --with-deps chromium
+      - run: npm --workspace apps/web run test:e2e:smoke
   api-check:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_USER: multazim
           POSTGRES_PASSWORD: multazim_ci
@@ -44,3 +46,6 @@ jobs:
       - run: python scripts/migrate.py
         env:
           DATABASE_URL: postgresql://multazim:multazim_ci@localhost:5432/multazim
+      - run: python -m pytest apps/api/tests/test_postgres_integration.py -q
+        env:
+          POSTGRES_TEST_URL: postgresql://multazim:multazim_ci@localhost:5432/multazim
