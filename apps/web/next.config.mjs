@@ -1,3 +1,12 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const isVercelBuild = Boolean(process.env.VERCEL);
+
 /** @type {import('next').NextConfig} */
-const nextConfig = { output: 'standalone' };
+const nextConfig = {
+  ...(isVercelBuild ? {} : { output: 'standalone', outputFileTracingRoot: repositoryRoot }),
+  turbopack: { root: repositoryRoot },
+};
 export default nextConfig;

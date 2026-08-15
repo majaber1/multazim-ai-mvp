@@ -1,0 +1,82 @@
+{
+  "code": "TGA-TAXI-APP-MEDIATION",
+  "business_activity": {
+    "code": "BA-TRANSPORT-TAXI-APP",
+    "name_ar": "إطلاق تطبيق للوساطة في نقل الركاب بسيارات الأجرة",
+    "name_en": "Launch an electronic taxi passenger-mediation application",
+    "sector": "transportation"
+  },
+  "license": {
+    "code": "LIC-TGA-TAXI-APP-MEDIATION",
+    "name_ar": "عقد ممارسة نشاط الوساطة في نقل الركاب بسيارات الأجرة عبر التطبيقات الإلكترونية",
+    "name_en": "Contract to operate electronic taxi passenger mediation",
+    "license_model": "TGA_PRIVATE_SECTOR_CONTRACT",
+    "legal_note_ar": "تنص المادة الثامنة عشرة على أن الممارسة تكون من خلال عقد أو عقود تطرحها الهيئة، ويعد العقد بمثابة الترخيص.",
+    "legal_note_en": "Article 18 states that the activity is practiced through contract(s) offered by TGA, and the contract serves as the license."
+  },
+  "authority": {"code": "TGA", "name_ar": "الهيئة العامة للنقل", "name_en": "Transport General Authority"},
+  "platform": {"code": "LOGISTI", "name_ar": "منصة لوجستي", "name_en": "Logisti Platform", "url": "https://logisti.sa"},
+  "official_sources": [
+    {"id": "TGA-REG-6141", "title_ar": "اللائحة التنفيذية لأنشطة النقل بسيارة الأجرة والوساطة في نقل الركاب بسيارة الأجرة", "title_en": "Executive Regulation for Taxi Transport and Passenger Mediation Activities", "url": "https://www.tga.gov.sa/ar/Regulations/Regulation/6141"},
+    {"id": "TGA-LICENSE-SERVICE", "title_ar": "خدمة إصدار التراخيص", "title_en": "License Issuance Service", "url": "https://www.tga.gov.sa/ar/ActivitiesServices/TGAServices/Service/4"},
+    {"id": "IAM-ABOUT", "title_ar": "الهوية الرقمية الوطنية", "title_en": "National Digital Identity", "url": "https://www.iam.gov.sa/ar/about.html"}
+  ],
+  "requirements": [
+    {
+      "code": "TGA-JRN-001", "type": "license", "status": "CONFIRMED_REQUIREMENT", "weight": 20,
+      "title_ar": "الحصول على عقد مطروح من الهيئة لممارسة النشاط", "title_en": "Obtain a TGA-offered contract to practice the activity",
+      "description_ar": "العقد أو العقود التي تطرحها الهيئة للقطاع الخاص تعد بمثابة الترخيص لممارسة نشاط الوساطة عبر التطبيق.",
+      "description_en": "The contract(s) offered by TGA to the private sector serve as the authorization to operate the electronic mediation activity.",
+      "source_id": "TGA-REG-6141", "source_reference": "المادة 18", "evidence": ["عقد نافذ مع الهيئة"]
+    },
+    {
+      "code": "TGA-JRN-002", "type": "submission", "status": "CONFIRMED_REQUIREMENT", "weight": 10,
+      "title_ar": "استخدام قناة الهيئة المعتمدة لخدمة الإصدار", "title_en": "Use the authority's approved issuance channel",
+      "description_ar": "تعرض خدمة إصدار التراخيص خطوات تسجيل الدخول عبر منصة لوجستي، ثم الوصول للخدمات واختيار الإصدار حسب النشاط.",
+      "description_en": "The license service directs applicants to sign in through Logisti, open services, and select issuance for the relevant activity.",
+      "source_id": "TGA-LICENSE-SERVICE", "source_reference": "خطوات الخدمة", "evidence": ["رقم طلب أو سجل معاملة من لوجستي"]
+    },
+    {
+      "code": "TGA-JRN-003", "type": "integration", "status": "CONFIRMED_REQUIREMENT", "weight": 15,
+      "title_ar": "الارتباط بالأنظمة الإلكترونية التي تحددها الهيئة", "title_en": "Connect to electronic systems specified by TGA",
+      "description_ar": "تُلزم اللائحة مقدمي خدمات أنشطة الأجرة بالارتباط بالأنظمة الإلكترونية التي تحددها الهيئة.",
+      "description_en": "The regulation requires taxi-activity service providers to connect to electronic systems specified by TGA.",
+      "source_id": "TGA-REG-6141", "source_reference": "المادة 26", "evidence": ["إشعار قبول التكامل أو نتيجة اختبار الربط"]
+    },
+    {
+      "code": "TGA-JRN-004", "type": "data", "status": "CONFIRMED_REQUIREMENT", "weight": 15,
+      "title_ar": "تسجيل وتزويد الهيئة ببيانات الرحلات المطلوبة", "title_en": "Record and provide the required trip data to TGA",
+      "description_ar": "تشمل البيانات المحددة في اللائحة بيانات مقدم الخدمة والراكب والسائق والسيارة والانطلاق والوصول والتوقيت.",
+      "description_en": "The regulation lists provider, passenger, driver, vehicle, origin, destination, and timing data that must be recorded and provided.",
+      "source_id": "TGA-REG-6141", "source_reference": "المادة 30", "evidence": ["مخطط بيانات معتمد", "سجل اختبار تبادل البيانات"]
+    },
+    {
+      "code": "TGA-JRN-005", "type": "operation", "status": "CONFIRMED_REQUIREMENT", "weight": 15,
+      "title_ar": "قصر الخدمة على التطبيق المعتمد وإيقاف الأطراف غير السارية", "title_en": "Use the approved application and suspend invalid providers, vehicles, or drivers",
+      "description_ar": "تتضمن التزامات التشغيل تقديم الخدمة عبر التطبيق الخاص بالمقدم وإيقاف الخدمة عند انتهاء التراخيص أو بطاقات التشغيل أو إخلال السائق بالشروط.",
+      "description_en": "Operating obligations include using the provider's application and stopping service when licenses, operating cards, or driver eligibility are invalid.",
+      "source_id": "TGA-REG-6141", "source_reference": "المادة 31", "evidence": ["قواعد إيقاف آلية", "سجل اختبار صلاحية مقدم الخدمة والمركبة والسائق"]
+    },
+    {
+      "code": "TGA-JRN-006", "type": "privacy", "status": "SUGGESTED_REQUIREMENT", "weight": 15,
+      "title_ar": "تقييم التزامات حماية البيانات الشخصية للرحلات", "title_en": "Assess personal-data protection obligations for trip data",
+      "description_ar": "تتضمن بيانات الرحلة معرفات شخصية ومواقع وأوقات؛ يقترح ملتزم تقييم انطباق نظام حماية البيانات الشخصية وربط النتيجة بضوابط الخصوصية، دون اعتباره حكماً قانونياً.",
+      "description_en": "Trip data includes personal identifiers, locations, and times; Multazim suggests a PDPL applicability review without presenting it as a legal determination.",
+      "source_id": "TGA-REG-6141", "source_reference": "المادة 30؛ يتطلب ربطاً خبيراً مع PDPL", "evidence": ["تقييم أثر الخصوصية", "سجل أنشطة المعالجة"]
+    },
+    {
+      "code": "TGA-JRN-007", "type": "cybersecurity", "status": "REQUIRES_EXPERT_VERIFICATION", "weight": 5,
+      "title_ar": "تحديد الضوابط السيبرانية المنطبقة على التطبيق والتكامل", "title_en": "Determine cybersecurity controls applicable to the application and integration",
+      "description_ar": "لا تحدد المصادر المسجلة هنا إطاراً سيبرانياً بعينه لهذا النشاط؛ يجب تأكيد النطاق مع الجهة والخبراء وفق ملف المنشأة والتكامل.",
+      "description_en": "The recorded sources do not identify one specific cybersecurity framework for this activity; scope must be confirmed against the organization and integration profile.",
+      "source_id": "TGA-REG-6141", "source_reference": "يتطلب تحققاً خبيراً", "evidence": ["قرار نطاق سيبراني معتمد"]
+    },
+    {
+      "code": "TGA-JRN-008", "type": "identity", "status": "REQUIRES_EXPERT_VERIFICATION", "weight": 5,
+      "title_ar": "التحقق من اشتراط تكامل نفاذ لهذا النشاط", "title_en": "Verify whether Nafath integration is required for this activity",
+      "description_ar": "نفاذ يوفر التحقق والربط الآلي للهوية الرقمية، لكن المصادر المسجلة لا تثبت أنه شرط خاص بترخيص هذا النشاط؛ لا يبدأ التكامل قبل تأكيد الهيئة.",
+      "description_en": "Nafath supports digital-identity verification and automated integration, but the recorded sources do not establish it as a licensing requirement for this activity; confirm with TGA first.",
+      "source_id": "IAM-ABOUT", "source_reference": "وصف خدمات الهوية الرقمية؛ شرط النشاط غير مؤكد", "evidence": ["تأكيد رسمي لنطاق التكامل أو قرار عدم الانطباق"]
+    }
+  ]
+}

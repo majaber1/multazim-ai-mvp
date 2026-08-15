@@ -1,0 +1,12 @@
+.git
+.data
+.pytest_cache
+.pytest-*
+node_modules
+**/node_modules
+**/.next
+**/test-results
+**/playwright-report
+tmp
+output
+*.log

@@ -5,5 +5,11 @@ node_modules
 __pycache__
 .pytest_cache
 .venv
+.data
+*.tsbuildinfo
 *.pyc
 .DS_Store
+apps/web/playwright-report/
+apps/web/test-results/
+tmp/
+.qa-*.log
