@@ -859,6 +859,12 @@ def create_assessment(payload: AssessmentCampaignCreate,
     return item
 
 
+@app.get("/v1/assessments/{assessment_id}/responses", response_model=list[AssessmentResponse])
+def list_assessment_responses(assessment_id: UUID, user: Annotated[UserContext, Depends(user_context)]):
+    tenant_assessment(assessment_id, user)
+    return [item for item in assessment_response_store.values() if item.assessment_id == assessment_id]
+
+
 @app.put("/v1/assessments/{assessment_id}/responses/{control_code}", response_model=AssessmentResponse)
 def upsert_assessment_response(assessment_id: UUID, control_code: str, payload: AssessmentResponseUpsert,
     user: Annotated[UserContext, Depends(require_roles(Role.ORG_ADMIN, Role.COMPLIANCE_MANAGER, Role.ASSESSOR))]):

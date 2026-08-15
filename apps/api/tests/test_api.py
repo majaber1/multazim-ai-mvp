@@ -230,6 +230,92 @@ def test_assessment_campaign_response_and_transparent_score_are_tenant_scoped():
     assert client.get(f"/v1/assessments/{assessment_id}/score", headers=headers(other_org)).status_code == 404
 
 
+def test_get_assessment_responses_persists_and_is_tenant_isolated():
+    org_id, other_org = uuid4(), uuid4()
+    created = client.post("/v1/assessments", headers=headers(org_id), json={
+        "organization_id": str(org_id), "framework_code": "NCA-ECC-2-2024", "framework_version": "2-2024",
+        "title": "Persistence test", "scope": "IT department", "assessor_ids": ["assessor-1"]
+    })
+    assessment_id = created.json()["id"]
+
+    client.put(f"/v1/assessments/{assessment_id}/responses/CTRL-A", headers=headers(org_id), json={
+        "control_code": "CTRL-A", "status": "partially_compliant", "rationale": "Partial implementation documented",
+        "comment": "Needs firewall update", "evidence_ids": [], "review_state": "submitted",
+        "mandatory": True, "weight": 2
+    })
+    client.put(f"/v1/assessments/{assessment_id}/responses/CTRL-B", headers=headers(org_id), json={
+        "control_code": "CTRL-B", "status": "compliant", "rationale": "Fully implemented",
+        "comment": "", "evidence_ids": [], "review_state": "submitted",
+        "mandatory": False, "weight": 1
+    })
+
+    responses = client.get(f"/v1/assessments/{assessment_id}/responses", headers=headers(org_id))
+    assert responses.status_code == 200
+    data = responses.json()
+    assert len(data) == 2
+
+    by_code = {r["control_code"]: r for r in data}
+    ctrl_a = by_code["CTRL-A"]
+    assert ctrl_a["status"] == "partially_compliant"
+    assert ctrl_a["rationale"] == "Partial implementation documented"
+    assert ctrl_a["comment"] == "Needs firewall update"
+    assert ctrl_a["evidence_ids"] == []
+    assert ctrl_a["mandatory"] is True
+    assert ctrl_a["weight"] == 2
+
+    ctrl_b = by_code["CTRL-B"]
+    assert ctrl_b["status"] == "compliant"
+    assert ctrl_b["rationale"] == "Fully implemented"
+
+    other_responses = client.get(f"/v1/assessments/{assessment_id}/responses", headers=headers(other_org))
+    assert other_responses.status_code == 404
+
+
+def test_put_then_get_response_roundtrip_preserves_all_fields():
+    org_id = uuid4()
+    created = client.post("/v1/assessments", headers=headers(org_id), json={
+        "organization_id": str(org_id), "framework_code": "TEST-FW", "framework_version": "1",
+        "title": "Roundtrip test", "scope": "All", "assessor_ids": ["a1"]
+    })
+    assessment_id = created.json()["id"]
+
+    put_resp = client.put(f"/v1/assessments/{assessment_id}/responses/RT-01", headers=headers(org_id), json={
+        "control_code": "RT-01", "status": "non_compliant", "rationale": "Policy not approved",
+        "comment": "Escalate to CISO", "evidence_ids": [], "review_state": "draft",
+        "mandatory": True, "weight": 3
+    })
+    assert put_resp.status_code == 200
+    put_data = put_resp.json()
+
+    get_resp = client.get(f"/v1/assessments/{assessment_id}/responses", headers=headers(org_id))
+    get_data = get_resp.json()
+    assert len(get_data) == 1
+    got = get_data[0]
+
+    assert got["id"] == put_data["id"]
+    assert got["status"] == "non_compliant"
+    assert got["rationale"] == "Policy not approved"
+    assert got["comment"] == "Escalate to CISO"
+    assert got["evidence_ids"] == []
+    assert got["mandatory"] is True
+    assert got["weight"] == 3
+    assert got["review_state"] == "draft"
+
+    update_resp = client.put(f"/v1/assessments/{assessment_id}/responses/RT-01", headers=headers(org_id), json={
+        "control_code": "RT-01", "status": "compliant", "rationale": "Policy approved by board",
+        "comment": "Verified", "evidence_ids": [], "review_state": "approved",
+        "mandatory": True, "weight": 3
+    })
+    assert update_resp.status_code == 200
+    assert update_resp.json()["id"] == put_data["id"]
+
+    get_updated = client.get(f"/v1/assessments/{assessment_id}/responses", headers=headers(org_id))
+    updated = get_updated.json()
+    assert len(updated) == 1
+    assert updated[0]["status"] == "compliant"
+    assert updated[0]["rationale"] == "Policy approved by board"
+
+
 def test_gap_mapping_coverage_and_applicability_override_workflow():
     org_id = uuid4()
     override = client.put(f"/v1/organizations/{org_id}/applicability/NCA-ECC/override", headers=headers(org_id), json={
