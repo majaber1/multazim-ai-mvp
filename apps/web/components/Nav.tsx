@@ -8,7 +8,7 @@ export function Nav() {
         <nav className="hidden items-center gap-7 text-sm font-bold text-slate-600 md:flex">
           <Link href="#features">المزايا</Link><Link href="#how">كيف يعمل</Link><Link href="#pricing">الأسعار</Link>
         </nav>
-        <div className="flex gap-2"><Link href="/dashboard" className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-bold">دخول</Link><Link href="/assessment" className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white">ابدأ مجانًا</Link></div>
+        <div className="flex gap-2"><Link href="/auth/login" className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-bold">دخول</Link><Link href="/assessment" className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white">ابدأ مجانًا</Link></div>
       </div>
     </header>
   );
